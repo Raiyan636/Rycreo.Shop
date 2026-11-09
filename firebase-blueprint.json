@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "StoreData": {
+      "title": "StoreData",
+      "description": "Global catalog, configuration, and content for RycreoShop",
+      "type": "object",
+      "properties": {
+        "storeConfig": {
+          "type": "object",
+          "description": "Store configuration, contact, and branding"
+        },
+        "products": {
+          "type": "array",
+          "description": "List of products in catalog"
+        },
+        "categories": {
+          "type": "array",
+          "description": "List of categories"
+        },
+        "heroSlides": {
+          "type": "array",
+          "description": "Hero carousel slides"
+        },
+        "coupons": {
+          "type": "array",
+          "description": "Discount vouchers and coupons"
+        },
+        "reviews": {
+          "type": "array",
+          "description": "Customer reviews and ratings"
+        },
+        "quickCategories": {
+          "type": "array",
+          "description": "Quick collection shortcuts"
+        },
+        "staticPages": {
+          "type": "array",
+          "description": "Website static pages"
+        },
+        "attributes": {
+          "type": "array",
+          "description": "Product variation attributes"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["storeConfig", "products", "categories", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer purchase order",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique order ID"
+        },
+        "orderNumber": {
+          "type": "string",
+          "description": "Short customer-facing order number"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Full name of the customer"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Primary contact phone number"
+        },
+        "address": {
+          "type": "string",
+          "description": "Delivery address"
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "Total order amount in BDT"
+        },
+        "status": {
+          "type": "string",
+          "description": "Order status (Pending, Confirmed, Shipped, Delivered, Canceled)"
+        },
+        "items": {
+          "type": "array",
+          "description": "List of ordered items"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "orderNumber", "customerName", "phone", "address", "totalAmount", "status", "items", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Registered administrator",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Admin email address"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role level (admin, superadmin)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account creation timestamp"
+        }
+      },
+      "required": ["email", "role"]
+    },
+    "TelemetryLog": {
+      "title": "TelemetryLog",
+      "description": "Search telemetry record",
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search term"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Timestamp of query"
+        }
+      },
+      "required": ["query", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/store/{docId}": {
+      "schema": "StoreData",
+      "description": "Public store catalog and configuration documents"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Individual customer orders collection"
+    },
+    "/order_tracking/{orderNumber}": {
+      "schema": "Order",
+      "description": "Public single order tracking records by exact order number"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Authorized administrators collection"
+    },
+    "/search_logs/{logId}": {
+      "schema": "TelemetryLog",
+      "description": "Search telemetry logs"
+    }
+  }
+}

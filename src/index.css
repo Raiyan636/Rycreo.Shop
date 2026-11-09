@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-size: 13px; /* Clean, compact baseline across all devices */
+  color-scheme: light;
+}
+
+h1, h2, h3, h4, h5, h6, .font-heading {
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.015em;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeSpeed;
+  overscroll-behavior-y: contain;
+}
+
+body {
+  background-color: #F8FAFC;
+  color: #1E293B;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  font-size: 12.5px;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+
+/* Crisp, Natural Image Rendering */
+img {
+  image-rendering: auto;
+  max-width: 100%;
+}
+
+/* Touch Responsiveness */
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* Hide Scrollbar while preserving touch swipe & mouse drag scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Sleek Slim Scrollbars for explicit desktop viewports */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #38BDF8;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flashBurst {
+  0% { opacity: 0; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.01); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-ping-once {
+  animation: flashBurst 0.25s ease-out forwards;
+}
+
+/* Compact typography scaling for all screens */
+@media (max-width: 768px) {
+  body {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+}

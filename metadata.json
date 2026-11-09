@@ -1,0 +1,6 @@
+{
+  "name": "RycreoShop | Multi-Product E-Commerce Platform",
+  "description": "Scalable, ultra-clean, and highly secure multi-product e-commerce application for RycreoShop featuring clean search, working hours, order tracking, stealth decoy login, granular permissions, and search telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
