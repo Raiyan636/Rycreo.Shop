@@ -13,7 +13,8 @@ import {
   Package,
   Layers,
   ArrowRight,
-  Clock
+  Clock,
+  RotateCw
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { StoreLogo } from './common/StoreLogo';
@@ -147,8 +148,32 @@ export const MenuDrawer: React.FC<MenuDrawerProps> = ({
 
         {/* Drawer Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+
+          {/* 1. Google Instant Refresh Action */}
+          <button
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(new CustomEvent('trigger-store-refresh'));
+            }}
+            className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/15 to-sky-500/15 hover:from-emerald-500/25 hover:to-sky-500/25 border border-emerald-500/30 text-white transition-all cursor-pointer shadow-md group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/40 group-hover:rotate-180 transition-transform duration-500">
+                <RotateCw className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <span className="block text-white text-xs font-black tracking-wide">
+                  গুগল ইনস্ট্যান্ট রিফ্রেশ (Refresh Store)
+                </span>
+                <span className="block text-[10px] text-emerald-300 font-medium">
+                  গুগল ৪-কালার স্পিনার সহ সাথে সাথে রিফ্রেশ করুন
+                </span>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-1 transition-transform" />
+          </button>
           
-          {/* 1. Track My Order Top Action */}
+          {/* 2. Track My Order Top Action */}
           <button
             onClick={() => {
               if (onOpenTrackOrder) {

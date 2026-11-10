@@ -85,12 +85,109 @@ button, a, input, select, textarea {
   100% { opacity: 1; transform: scale(1); }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* Google Chrome Authentic Material 4-Color Spinner */
+@keyframes google-spinner-rotate {
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-.animate-ping-once {
-  animation: flashBurst 0.25s ease-out forwards;
+@keyframes google-spinner-dash {
+  0% {
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 89, 200;
+    stroke-dashoffset: -35px;
+  }
+  100% {
+    stroke-dasharray: 89, 200;
+    stroke-dashoffset: -124px;
+  }
+}
+
+@keyframes google-spinner-color {
+  100%, 0% {
+    stroke: #4285F4; /* Google Blue */
+  }
+  25% {
+    stroke: #EA4335; /* Google Red */
+  }
+  50% {
+    stroke: #FBBC05; /* Google Yellow */
+  }
+  75% {
+    stroke: #34A853; /* Google Green */
+  }
+}
+
+.google-spinner {
+  animation: google-spinner-rotate 1.4s linear infinite;
+  transform-origin: center center;
+}
+
+.google-spinner-path {
+  stroke-dasharray: 1, 200;
+  stroke-dashoffset: 0;
+  animation: google-spinner-dash 1.4s ease-in-out infinite, google-spinner-color 5.6s ease-in-out infinite;
+  stroke-linecap: round;
+}
+
+/* Modern E-Commerce Visual Design System & CSS Enhancements */
+
+.glass-header {
+  background-color: rgba(30, 41, 59, 0.97);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.google-search-container {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.google-search-container:focus-within {
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15), 0 4px 20px -2px rgba(15, 23, 42, 0.2);
+}
+
+.product-card-elevated {
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.28s ease;
+}
+
+.product-card-elevated:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.09), 0 6px 12px -3px rgba(15, 23, 42, 0.04);
+}
+
+.badge-gradient {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  box-shadow: 0 2px 8px -1px rgba(239, 68, 68, 0.35);
+}
+
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #4F46E5 100%);
+  box-shadow: 0 4px 14px -2px rgba(2, 132, 199, 0.35);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary-gradient:hover {
+  box-shadow: 0 6px 20px -2px rgba(2, 132, 199, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-primary-gradient:active {
+  transform: translateY(0);
+}
+
+@keyframes shimmerGlow {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer-active {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmerGlow 3s infinite ease-in-out;
 }
 
 /* Compact typography scaling for all screens */

@@ -566,8 +566,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const refreshStore = async (): Promise<boolean> => {
     try {
-      console.log("[refreshStore] Fetching latest live store data from Cloud Firestore...");
-      const cloudData = await getStoreDataFromServer();
+      console.log("[refreshStore] Fetching latest live store data from Cloud Firestore or Server...");
+      let cloudData = await getStoreDataFromServer();
+      if (!cloudData) {
+        try {
+          const res = await fetch('/api/store/data');
+          if (res.ok) {
+            cloudData = await res.json();
+          }
+        } catch (serverErr) {
+          console.warn("[refreshStore] Server fallback fetch notice:", serverErr);
+        }
+      }
+
       if (cloudData) {
         isStoreLoadedRef.current = true;
         if (Array.isArray(cloudData.products)) {
@@ -762,24 +773,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const unsubscribeOrders = subscribeToOrders((cloudOrders) => {
       if (Array.isArray(cloudOrders)) {
-        setOrders(prev => {
-          const map = new Map<string, Order>();
-          // Preserve local orders
-          (currentStoreDataRef.current.orders || []).forEach(o => map.set(o.id, o));
-          prev.forEach(o => map.set(o.id, o));
-          // Overlay cloud orders if any exist
-          if (cloudOrders.length > 0) {
-            cloudOrders.forEach(o => map.set(o.id, o));
-          }
-          const list = Array.from(map.values()).sort((a, b) => 
-            (b.orderTimestamp || new Date(b.createdAt || 0).getTime()) - (a.orderTimestamp || new Date(a.createdAt || 0).getTime())
-          );
-          currentStoreDataRef.current.orders = list;
-          try {
-            localStorage.setItem('rycreoshop_orders', JSON.stringify(list));
-          } catch {}
-          return list;
-        });
+        setOrders(cloudOrders);
+        currentStoreDataRef.current.orders = cloudOrders;
+        try {
+          localStorage.setItem('rycreoshop_orders', JSON.stringify(cloudOrders));
+        } catch {}
       }
     });
 

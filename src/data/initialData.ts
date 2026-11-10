@@ -94,7 +94,7 @@ export const INITIAL_STORE_CONFIG: StoreConfig = {
   defaultOutsideDhakaFee: 120,
   topBarNotice: "✨ WELCOME TO RYCREOSHOP: Trusted Shopping for Smart Gadgets, Fashion, Jewelry & Lifestyle! Fast Delivery Inside Dhaka ৳60, Nationwide ৳120",
   popularCollectionsTitle: "Popular Collections & Fast Categories",
-  popularCollectionsSubtitle: "Daraz-Style Quick Channels & Curated Collections",
+  popularCollectionsSubtitle: "",
   currencySymbol: "৳",
   metaTitle: "RycreoShop | Trusted Multi-Category E-Commerce Store in Bangladesh",
   metaDescription: "Shop at RycreoShop - Bangladesh's most trusted online shopping destination. Discover premium smart gadgets, trending fashion, fine jewelry, lifestyle accessories, and daily essentials with fast express nationwide delivery and cash on delivery.",

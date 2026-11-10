@@ -58,8 +58,19 @@ export async function compressImage(
       return '';
     }
 
-    // Downscale via canvas safely
+    // Downscale via canvas safely with 2.5s hard timeout guarantee
     return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (val: string) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val || sourceBase64);
+      };
+
+      const fallbackTimer = setTimeout(() => {
+        safeResolve(sourceBase64);
+      }, 2500);
+
       const img = new Image();
 
       img.onload = () => {
@@ -68,7 +79,8 @@ export async function compressImage(
           const origHeight = img.naturalHeight || img.height;
 
           if (!origWidth || !origHeight) {
-            resolve(sourceBase64);
+            clearTimeout(fallbackTimer);
+            safeResolve(sourceBase64);
             return;
           }
 
@@ -119,28 +131,24 @@ export async function compressImage(
 
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(sourceBase64);
+            clearTimeout(fallbackTimer);
+            safeResolve(sourceBase64);
             return;
           }
 
-          const isTransparent = mimeType === 'image/png' || mimeType === 'image/webp' || mimeType === 'image/svg+xml';
-          if (isTransparent && options.bgColor === 'transparent') {
-            ctx.clearRect(0, 0, targetWidth, targetHeight);
-          } else {
-            ctx.fillStyle = options.bgColor || '#FFFFFF';
+          const isTransparent = mimeType.includes('png') || mimeType.includes('webp') || mimeType.includes('svg');
+          if (options.bgColor && options.bgColor !== 'transparent') {
+            ctx.fillStyle = options.bgColor;
             ctx.fillRect(0, 0, targetWidth, targetHeight);
+          } else {
+            ctx.clearRect(0, 0, targetWidth, targetHeight);
           }
 
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
 
-          let outputMime = 'image/jpeg';
-          if (isTransparent && options.bgColor === 'transparent') {
-            outputMime = 'image/png';
-          } else {
-            outputMime = 'image/webp';
-          }
+          const outputMime = isTransparent ? 'image/png' : 'image/webp';
 
           let resultDataUrl = '';
           try {
@@ -152,16 +160,19 @@ export async function compressImage(
             resultDataUrl = canvas.toDataURL('image/jpeg', quality);
           }
 
-          resolve(resultDataUrl || sourceBase64);
+          clearTimeout(fallbackTimer);
+          safeResolve(resultDataUrl || sourceBase64);
         } catch (canvasErr) {
-          console.warn("[imageCompressor] Canvas drawing error:", canvasErr);
-          resolve(sourceBase64);
+          console.warn("[imageCompressor] Canvas drawing notice:", canvasErr);
+          clearTimeout(fallbackTimer);
+          safeResolve(sourceBase64);
         }
       };
 
       img.onerror = (imgErr) => {
         console.warn("[imageCompressor] Image loading notice:", imgErr);
-        resolve(sourceBase64);
+        clearTimeout(fallbackTimer);
+        safeResolve(sourceBase64);
       };
 
       img.src = sourceBase64;

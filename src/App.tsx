@@ -24,9 +24,7 @@ import {
   Sparkles, 
   ArrowUpDown, 
   Filter, 
-  ShieldCheck, 
   Truck, 
-  RefreshCw, 
   ShoppingBag, 
   Layers, 
   Tag, 
@@ -83,21 +81,21 @@ const MainAppContent: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeCategoryPage, setActiveCategoryPage] = useState(0);
   const [itemsPerPageByCategoryView, setItemsPerPageByCategoryView] = useState(() => {
-    if (typeof window === 'undefined') return 12;
-    if (window.innerWidth >= 1024) return 18;
-    if (window.innerWidth >= 640) return 15;
-    return 12;
+    if (typeof window === 'undefined') return 10;
+    if (window.innerWidth >= 1024) return 14;
+    if (window.innerWidth >= 640) return 12;
+    return 10;
   });
 
   useEffect(() => {
     const handleResize = () => {
       const w = window.innerWidth;
       if (w >= 1024) {
-        setItemsPerPageByCategoryView(18);
+        setItemsPerPageByCategoryView(14); // 7 cols x 2 rows
       } else if (w >= 640) {
-        setItemsPerPageByCategoryView(15);
+        setItemsPerPageByCategoryView(12); // 6 cols x 2 rows
       } else {
-        setItemsPerPageByCategoryView(12);
+        setItemsPerPageByCategoryView(10); // 5 cols x 2 rows
       }
     };
     handleResize();
@@ -198,20 +196,14 @@ const MainAppContent: React.FC = () => {
 
   // Favicon & Title Sync
   useEffect(() => {
-    document.title = `${storeConfig.storeName} - Premium E-Commerce & Lifestyle`;
-    let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
+    document.title = `${storeConfig.storeName || 'RycreoShop'} | Trusted Multi-Category Online Shopping in Bangladesh`;
+    if (storeConfig.faviconUrl && storeConfig.faviconUrl !== '/favicon.ico') {
+      const dynamicLink = document.getElementById('dynamic-favicon') as HTMLLinkElement | null;
+      if (dynamicLink) {
+        dynamicLink.href = storeConfig.faviconUrl;
+      }
     }
-    const fav = storeConfig.faviconUrl || storeConfig.logoUrl || '/logo.png';
-    link.href = fav;
-    const appleLink: HTMLLinkElement | null = document.querySelector("link[rel='apple-touch-icon']");
-    if (appleLink) {
-      appleLink.href = fav;
-    }
-  }, [storeConfig.storeName, storeConfig.logoUrl]);
+  }, [storeConfig.storeName, storeConfig.faviconUrl]);
 
   // Filter & Sort Products
   const filteredProducts = products.filter(product => {
@@ -349,7 +341,7 @@ const MainAppContent: React.FC = () => {
             </div>
           )}
 
-          {/* 2. Visual Circular Category Avatars (Daraz Grid) */}
+          {/* 2. Visual Category Cards (5 on Mobile, 6-7 on Large Screens, Rounded Squircle, Scalable) */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
@@ -357,9 +349,6 @@ const MainAppContent: React.FC = () => {
                   <Flame className="w-4 h-4 text-amber-500" />
                   <span>{storeConfig.popularCollectionsTitle || "Popular Collections"}</span>
                 </h3>
-                {storeConfig.popularCollectionsSubtitle && (
-                  <p className="text-[10px] text-slate-500 font-medium">{storeConfig.popularCollectionsSubtitle}</p>
-                )}
               </div>
 
               {categoryPages.length > 1 && (
@@ -386,11 +375,7 @@ const MainAppContent: React.FC = () => {
               )}
             </div>
 
-            {/* Row-First Paginated Category Grid:
-                - Mobile: 4 items per row, 3 rows max (up to 12 items per slide/page, swiping to next page if >12)
-                - Tablet: 5 items per row, 2-3 rows (up to 15 items per slide/page)
-                - Desktop/Laptop: 6 items per row, 2-3 rows (up to 18 items per slide/page)
-            */}
+            {/* Paginated Category Grid: 5 cols on mobile, 6 cols on tablet, 7 cols on large desktop */}
             <div 
               ref={scrollContainerRef}
               onScroll={handleCategoriesScroll}
@@ -399,7 +384,7 @@ const MainAppContent: React.FC = () => {
               {categoryPages.map((pageItems, pageIdx) => (
                 <div 
                   key={`cat-page-${pageIdx}`}
-                  className="w-full shrink-0 snap-start grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-x-2 gap-y-2.5 sm:gap-x-3 sm:gap-y-3.5 px-0.5"
+                  className="w-full shrink-0 snap-start grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-7 gap-x-2 gap-y-2.5 sm:gap-x-3.5 sm:gap-y-3.5 px-0.5"
                 >
                   {pageItems.map((sc) => {
                     const isActive = activeCategory.toLowerCase() === sc.targetCategory.toLowerCase();
@@ -415,29 +400,30 @@ const MainAppContent: React.FC = () => {
                           const el = document.getElementById('products');
                           el?.scrollIntoView({ behavior: 'smooth' });
                         }}
-                        className={`w-full flex flex-col items-center text-center p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer group ${
+                        className={`w-full flex flex-col items-center text-center p-1 sm:p-1.5 rounded-2xl transition-all cursor-pointer group ${
                           isActive 
-                            ? 'bg-sky-50 shadow-inner ring-1 ring-sky-300' 
+                            ? 'bg-sky-50 shadow-inner ring-1.5 ring-sky-300' 
                             : 'hover:bg-slate-50'
                         }`}
                       >
-                        <div className="relative">
+                        {/* Rounded Squircle Container - Larger, Scalable with Screen Size, No Sharp Corners */}
+                        <div className="relative w-full aspect-square max-w-[62px] sm:max-w-[76px] md:max-w-[88px] lg:max-w-[98px] flex items-center justify-center">
                           {sc.image ? (
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl overflow-hidden border border-slate-200 shadow-2xs group-hover:scale-105 transition-transform duration-200 bg-white">
-                              <img src={sc.image} alt={sc.label} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                            <div className="w-full h-full rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-200/90 shadow-2xs group-hover:scale-105 group-hover:border-sky-400 group-hover:shadow-md transition-all duration-200 bg-white p-0.5 flex items-center justify-center">
+                              <img src={sc.image} alt={sc.label} className="w-full h-full object-cover rounded-xl sm:rounded-2xl" loading="lazy" decoding="async" />
                             </div>
                           ) : (
-                            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br ${sc.colorGradient || 'from-amber-500 to-amber-700'} flex items-center justify-center text-lg sm:text-xl shadow-2xs group-hover:scale-105 transition-transform duration-200`}>
+                            <div className={`w-full h-full rounded-2xl sm:rounded-3xl bg-gradient-to-br ${sc.colorGradient || 'from-sky-500 to-indigo-600'} flex items-center justify-center text-xl sm:text-2xl lg:text-3xl shadow-2xs group-hover:scale-105 group-hover:shadow-md transition-all duration-200 text-white`}>
                               {sc.icon || '✨'}
                             </div>
                           )}
                           {sc.tag && (
-                            <span className="absolute -top-1 -right-1.5 px-1 py-0.2 rounded-full bg-rose-500 text-white font-black text-[7.5px] tracking-wider uppercase shadow-2xs">
+                            <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-black text-[7.5px] sm:text-[8.5px] tracking-wider uppercase shadow-2xs">
                               {sc.tag}
                             </span>
                           )}
                         </div>
-                        <span className="font-semibold text-[10px] sm:text-[11px] text-slate-700 mt-1.5 block leading-tight group-hover:text-sky-600 transition-colors truncate max-w-full px-1">
+                        <span className="font-bold text-[9.5px] sm:text-[11px] text-slate-700 mt-1.5 block leading-tight group-hover:text-sky-600 transition-colors truncate max-w-full px-0.5">
                           {sc.label}
                         </span>
                       </button>
@@ -638,7 +624,7 @@ const MainAppContent: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-5 lg:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2.5 sm:gap-3.5 lg:gap-4">
               {paginatedProducts.map(product => (
                 <ProductCard key={product.id} product={product} />
               ))}
@@ -692,33 +678,6 @@ const MainAppContent: React.FC = () => {
             )}
           </div>
         )}
-
-        {/* Store Guarantees Banner */}
-        <section className="bg-white rounded-3xl p-6 border border-[#E2E8F0] shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
-          <div className="flex flex-col items-center space-y-1.5 p-3">
-            <div className="w-12 h-12 rounded-2xl bg-sky-50 text-[#38BDF8] flex items-center justify-center">
-              <Truck className="w-6 h-6" />
-            </div>
-            <h4 className="font-extrabold text-sm text-slate-800">Fast Express Delivery</h4>
-            <p className="text-xs text-slate-500">Inside Dhaka (৳60) in 24 hrs • Outside Dhaka (৳120) via Courier</p>
-          </div>
-
-          <div className="flex flex-col items-center space-y-1.5 p-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#10B981] flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h4 className="font-extrabold text-sm text-slate-800">100% Authentic Quality</h4>
-            <p className="text-xs text-slate-500">Super combed cotton & premium linen fabrics guaranteed.</p>
-          </div>
-
-          <div className="flex flex-col items-center space-y-1.5 p-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-[#F59E0B] flex items-center justify-center">
-              <RefreshCw className="w-6 h-6" />
-            </div>
-            <h4 className="font-extrabold text-sm text-slate-800">Easy Size Exchange</h4>
-            <p className="text-xs text-slate-500">7-day size swap guarantee via WhatsApp support.</p>
-          </div>
-        </section>
 
       </main>
 

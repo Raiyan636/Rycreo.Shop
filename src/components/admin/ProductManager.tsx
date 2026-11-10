@@ -583,19 +583,19 @@ export const ProductManager: React.FC = () => {
     const rawImages = images.length > 0 ? images : [
       "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=800"
     ];
-    const processedImages: string[] = [];
-    for (const img of rawImages) {
-      if (img.startsWith('blob:') || img.startsWith('data:')) {
-        try {
-          const safeUrl = await uploadImageToStorage(img, 'products');
-          if (safeUrl) processedImages.push(safeUrl);
-        } catch {
-          processedImages.push(img);
+    const processedImages: string[] = await Promise.all(
+      rawImages.map(async (img) => {
+        if (img.startsWith('blob:') || img.startsWith('data:')) {
+          try {
+            const safeUrl = await uploadImageToStorage(img, 'products');
+            return safeUrl || img;
+          } catch {
+            return img;
+          }
         }
-      } else {
-        processedImages.push(img);
-      }
-    }
+        return img;
+      })
+    );
     const finalImages = processedImages.length > 0 ? processedImages : [
       "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=800"
     ];

@@ -1,9 +1,29 @@
+# robots.txt for RycreoShop (https://rycreoshop.com)
 User-agent: *
 Allow: /
 Allow: /favicon.ico
 Allow: /favicon.png
-Allow: /favicon-192.png
-Allow: /favicon-512.png
-Allow: /logo.svg
+Allow: /favicon-*.png
+Allow: /apple-touch-icon.png
+Allow: /logo.png
+Allow: /uploads/
+Allow: /manifest.json
 
+# Protected Admin and Internal API Routes
+Disallow: /admin
+Disallow: /api/
+
+# Crawler-specific directives
+User-agent: Googlebot
+Allow: /
+Allow: /favicon-48x48.png
+Allow: /favicon-96x96.png
+Allow: /favicon-192x192.png
+
+User-agent: Googlebot-Image
+Allow: /uploads/
+Allow: /logo.png
+Allow: /favicon*.png
+
+# Sitemap Location
 Sitemap: https://rycreoshop.com/sitemap.xml

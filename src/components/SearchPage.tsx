@@ -420,7 +420,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ isOpen, onClose }) => {
             </div>
           ) : searchResults.length > 0 ? (
             /* SEARCH RESULTS GRID (Shown ONLY after Go / Submit) */
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2.5 sm:gap-3.5 lg:gap-4">
               {searchResults.map(product => (
                 <ProductCard key={product.id} product={product} />
               ))}

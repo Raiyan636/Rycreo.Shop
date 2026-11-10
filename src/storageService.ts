@@ -77,13 +77,17 @@ export async function uploadImageToStorage(
       return typeof fileOrDataUrl === 'string' && !fileOrDataUrl.startsWith('blob:') ? fileOrDataUrl : '';
     }
 
-    // 2. High-speed local server storage if available (/api/upload)
+    // 2. High-speed local server storage if available (/api/upload) with 1200ms strict timeout
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1200);
       const apiRes = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: compressedDataUrl, pathPrefix })
+        body: JSON.stringify({ image: compressedDataUrl, pathPrefix }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       if (apiRes.ok) {
         const json = await apiRes.json();
         if (json?.url) {
@@ -93,26 +97,33 @@ export async function uploadImageToStorage(
       }
     } catch {}
 
-    // 3. Cloud Storage upload (Firebase Storage)
+    // 3. Cloud Storage upload (Firebase Storage with 1200ms strict timeout Promise.race)
     try {
       const blob = dataUrlToBlob(compressedDataUrl);
       const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       const storageRef = ref(storage, `${pathPrefix}/${uniqueId}.webp`);
 
-      const uploadResult = await uploadBytes(storageRef, blob, {
+      const uploadPromise = uploadBytes(storageRef, blob, {
         contentType: 'image/webp',
         cacheControl: 'public, max-age=31536000'
+      }).then(async (uploadResult) => {
+        return await getDownloadURL(uploadResult.ref);
       });
-      const hostedUrl = await getDownloadURL(uploadResult.ref);
+
+      const timeoutPromise = new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('Storage timeout')), 1200)
+      );
+
+      const hostedUrl = await Promise.race([uploadPromise, timeoutPromise]);
       if (hostedUrl && hostedUrl.startsWith('http')) {
         console.log(`[storageService] Firebase Storage Hosted URL: ${hostedUrl}`);
         return hostedUrl;
       }
     } catch (storageErr) {
-      // Firebase Storage bucket not yet provisioned in console
+      // Fast fallback to compact canvas WebP
     }
 
-    // 4. Compact WebP Data URL (< 25KB) - 100% universal across Netlify, mobile, and Firestore
+    // 4. Compact WebP Data URL (< 25KB) - 100% instant, universal, zero hanging
     return compressedDataUrl;
   } catch (err: any) {
     console.error("[storageService: UPLOAD ERROR]", err);

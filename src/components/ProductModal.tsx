@@ -665,7 +665,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                       : 'border-slate-200 opacity-70 hover:opacity-100'
                   }`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <img src={img} alt="" className="w-full h-full object-contain p-0.5 bg-slate-50" />
                 </button>
               ))}
 
@@ -725,7 +725,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                       key={modalImages[activeMediaIndex] || 'modal-img'}
                       src={modalImages[activeMediaIndex] || modalImages[0]}
                       alt={selectedProduct.title}
-                      className="w-full h-full object-cover object-center transition-all duration-300 ease-in-out"
+                      className="w-full h-full object-contain p-2 bg-slate-50/60 transition-all duration-300 ease-in-out"
                     />
 
                     {modalImages.length > 1 && (

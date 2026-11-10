@@ -18,6 +18,61 @@ app.use(express.json({ limit: '25mb' }));
 
 // Dedicated Static & Uploads Storage for favicon, assets and media
 const publicDir = path.resolve(__dirname, 'public');
+
+// Dynamic Live Sitemap Route for Google Search Engine Indexing
+app.get('/sitemap.xml', (req, res) => {
+  try {
+    const origin = 'https://rycreoshop.com';
+    const now = new Date().toISOString();
+    const staticPages = [
+      'about-us',
+      'contact-us',
+      'about-our-store',
+      'terms-of-service',
+      'privacy-policy',
+      'shipping-policy'
+    ];
+    const categories = Array.isArray(storeDb.categories) && storeDb.categories.length > 0 
+      ? storeDb.categories.map((c: any) => c.slug || c.id) 
+      : ['clothing', 'festive-premium', 'pants', 'polo-t-shirts', 'smart-gadgets', 'jewelry-accessories'];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n`;
+    
+    // Home Page
+    xml += `  <url>\n    <loc>${origin}/</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n    <image:image>\n      <image:loc>${origin}/logo.png</image:loc>\n      <image:title>RycreoShop - Bangladesh's Trusted Online Shopping Destination</image:title>\n    </image:image>\n  </url>\n`;
+
+    // Static Pages
+    staticPages.forEach(slug => {
+      xml += `  <url>\n    <loc>${origin}/page/${slug}</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+    });
+
+    // Categories
+    categories.forEach((catSlug: string) => {
+      xml += `  <url>\n    <loc>${origin}/category/${catSlug}</loc>\n    <lastmod>${now}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.9</priority>\n  </url>\n`;
+    });
+
+    // Products
+    if (Array.isArray(storeDb.products)) {
+      storeDb.products.forEach((p: any) => {
+        const pSlug = p.slug || p.id;
+        const pImg = p.images?.[0] ? `<image:image><image:loc>${p.images[0].startsWith('http') ? p.images[0] : origin + p.images[0]}</image:loc><image:title>${p.title.replace(/[<>&'"]/g, '')}</image:title></image:image>` : '';
+        xml += `  <url>\n    <loc>${origin}/product/${pSlug}</loc>\n    <lastmod>${p.createdAt || now}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.85</priority>\n    ${pImg}\n  </url>\n`;
+      });
+    }
+
+    xml += `</urlset>`;
+    res.header('Content-Type', 'application/xml');
+    return res.send(xml);
+  } catch (err: any) {
+    const sitemapPath = path.join(publicDir, 'sitemap.xml');
+    if (fs.existsSync(sitemapPath)) {
+      return res.sendFile(sitemapPath);
+    }
+    return res.status(500).send('<error>Unable to generate sitemap</error>');
+  }
+});
+
 app.use(express.static(publicDir, { maxAge: '1d' }));
 
 const uploadsDir = path.resolve(__dirname, 'public', 'uploads');
