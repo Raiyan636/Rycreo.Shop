@@ -127,6 +127,96 @@
         }
       },
       "required": ["query", "timestamp"]
+    },
+    "PreOrderProduct": {
+      "title": "PreOrderProduct",
+      "description": "Upcoming pre-order product listing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "productCode": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "advanceType": { "type": "string" },
+        "advanceValue": { "type": "number" },
+        "advanceAmount": { "type": "number" },
+        "images": { "type": "array" },
+        "colors": { "type": "array" },
+        "sizes": { "type": "array" },
+        "variations": { "type": "array" },
+        "seoTitle": { "type": "string" },
+        "seoDescription": { "type": "string" },
+        "keywords": { "type": "array" },
+        "weWillGetText": { "type": "string" },
+        "youWillGetText": { "type": "string" },
+        "isVisible": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "price", "isVisible", "createdAt"]
+    },
+    "PreOrderRecord": {
+      "title": "PreOrderRecord",
+      "description": "Customer pre-order booking with delivery info",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "preOrderNumber": { "type": "string" },
+        "productId": { "type": "string" },
+        "productTitle": { "type": "string" },
+        "customerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "quantity": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "advancePaidAmount": { "type": "number" },
+        "dueAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "paymentTrxId": { "type": "string" },
+        "linkedOrderNumber": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "preOrderNumber", "productId", "customerName", "phone", "address", "status", "createdAt"]
+    },
+    "BuyMoreOffer": {
+      "title": "BuyMoreOffer",
+      "description": "Buy One Get More promotional product bundle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "productCode": { "type": "string" },
+        "badgeText": { "type": "string" },
+        "mainProductTitle": { "type": "string" },
+        "price": { "type": "number" },
+        "images": { "type": "array" },
+        "colors": { "type": "array" },
+        "sizes": { "type": "array" },
+        "seoTitle": { "type": "string" },
+        "keywords": { "type": "array" },
+        "freeItems": { "type": "array" },
+        "isVisible": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "mainProductTitle", "price", "isVisible", "createdAt"]
+    },
+    "BuyMoreVoucher": {
+      "title": "BuyMoreVoucher",
+      "description": "Voucher for Buy One Get More offers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "freeProductNote": { "type": "string" },
+        "isVisible": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "code", "title", "isVisible", "createdAt"]
     }
   },
   "firestore": {
@@ -149,6 +239,22 @@
     "/search_logs/{logId}": {
       "schema": "TelemetryLog",
       "description": "Search telemetry logs"
+    },
+    "/pre_orders/{preOrderId}": {
+      "schema": "PreOrderRecord",
+      "description": "Customer pre-order submissions"
+    },
+    "/pre_order_products/{productId}": {
+      "schema": "PreOrderProduct",
+      "description": "Upcoming pre-order catalog items"
+    },
+    "/buy_more_offers/{offerId}": {
+      "schema": "BuyMoreOffer",
+      "description": "Buy One Get More product deals"
+    },
+    "/buy_more_vouchers/{voucherId}": {
+      "schema": "BuyMoreVoucher",
+      "description": "Buy One Get More vouchers"
     }
   }
 }

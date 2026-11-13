@@ -44,5 +44,25 @@ service cloud.firestore {
     match /search_logs/{logId} {
       allow read, write: if isAdmin();
     }
+
+    match /pre_orders/{preOrderId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /pre_order_products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /buy_more_offers/{offerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /buy_more_vouchers/{voucherId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

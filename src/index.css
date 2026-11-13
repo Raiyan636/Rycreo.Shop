@@ -23,7 +23,8 @@ html {
 }
 
 body {
-  background-color: #F8FAFC;
+  background-color: #FFF9C4;
+  background-image: linear-gradient(180deg, #FFF9C4 0%, #FEF08A 18%, #ECFDF5 48%, #D1FAE5 75%, #059669 100%);
   color: #1E293B;
   overflow-x: hidden;
   touch-action: pan-y;
@@ -31,6 +32,19 @@ body {
   font-size: 12.5px;
   line-height: 1.4;
   letter-spacing: -0.005em;
+}
+
+.rycreo-wave-storefront {
+  background: linear-gradient(
+    180deg,
+    #FFF9C4 0%,
+    #FEF08A 14%,
+    #ECFDF5 38%,
+    #D1FAE5 62%,
+    #10B981 84%,
+    #059669 94%,
+    #065F46 100%
+  );
 }
 
 /* Crisp, Natural Image Rendering */
@@ -122,16 +136,37 @@ button, a, input, select, textarea {
   }
 }
 
-.google-spinner {
-  animation: google-spinner-rotate 1.4s linear infinite;
+/* Custom Website Logo Animated Pull-To-Refresh System */
+@keyframes logo-refresh-spin {
+  0% {
+    transform: rotate(0deg) scale(0.95);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.06);
+  }
+  100% {
+    transform: rotate(360deg) scale(0.95);
+  }
+}
+
+@keyframes logo-ring-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+.animate-logo-refresh {
+  animation: logo-refresh-spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   transform-origin: center center;
 }
 
-.google-spinner-path {
-  stroke-dasharray: 1, 200;
-  stroke-dashoffset: 0;
-  animation: google-spinner-dash 1.4s ease-in-out infinite, google-spinner-color 5.6s ease-in-out infinite;
-  stroke-linecap: round;
+.animate-logo-pulse-ring {
+  animation: logo-ring-pulse 1.8s ease-in-out infinite;
 }
 
 /* Modern E-Commerce Visual Design System & CSS Enhancements */

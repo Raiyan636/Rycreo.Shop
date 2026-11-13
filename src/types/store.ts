@@ -102,6 +102,19 @@ export interface Product {
   isFreeShipping?: boolean; // Admin-controlled Free Shipping badge and filter
   order?: number; // Custom sorting order (smaller = higher)
   position?: number; // 1-based display position (1 = top of website, 2 = second, etc.)
+  availability?: 'available' | 'preorder';
+  isPreOrder?: boolean;
+  preOrderDays?: number;
+  preOrderQuantityLimit?: number;
+  preOrderAdvanceType?: 'fixed' | 'percent';
+  preOrderAdvanceValue?: number;
+  weWillGetText?: string;
+  youWillGetText?: string;
+  isBuyMoreOffer?: boolean;
+  wholesalePrice?: number;
+  resellerPrice?: number;
+  titleBn?: string;
+  descriptionBn?: string;
   createdAt: string;
 }
 
@@ -141,6 +154,11 @@ export interface CartItem {
   selectedVariation?: ProductVariation;
   quantity: number;
   price: number; // salePrice or regular price or variation price
+  isPreOrder?: boolean;
+  preOrderDays?: number;
+  preOrderAdvanceType?: 'fixed' | 'percent';
+  preOrderAdvanceValue?: number;
+  isBuyMoreOffer?: boolean;
 }
 
 export interface PaymentGateway {
@@ -192,13 +210,21 @@ export interface Order {
   orderTimestamp?: number;
   notes?: string;
   isSeen?: boolean;
+  hasPreOrderItems?: boolean;
+  isModified?: boolean;
 }
+
+export type VoucherOfferType = 'standard' | 'bogo' | 'buy2_get1' | 'buy_more_get_more' | 'limited_time';
 
 export interface Coupon {
   id: string;
   code: string; // e.g. "SAVE10"
   title?: string; // e.g. "10% Off Eid Storewide"
+  titleBn?: string;
   description?: string; // e.g. "Min spend ৳1,000. Valid on all fashion & lifestyle."
+  descriptionBn?: string;
+  offerType?: VoucherOfferType;
+  isLimitedTime?: boolean;
   discountType: 'percent' | 'fixed'; // 'percent' (e.g. 10%) or 'fixed' (e.g. ৳200)
   discountValue: number;
   minOrderAmount?: number;
@@ -279,6 +305,30 @@ export interface ProductAdvanceRule {
   advanceValue: number; // e.g. 100 for BDT 100, or 20 for 20%
   discountPercent?: number; // Optional discount percentage
   freeDelivery?: boolean; // Optional free delivery
+}
+
+export interface SectionBannerConfig {
+  active: boolean;
+  title: string;
+  subtitle: string;
+  badge: string;
+  ctaText: string;
+  ctaLink: string;
+  categoryLink?: string;
+  mediaType: 'image' | 'video';
+  mediaUrl: string;
+  overlayOpacity?: number;
+  showCta?: boolean;
+  hideTextOverlay?: boolean;
+}
+
+export interface SectionGridLayoutConfig {
+  maxRows: number;
+  mobileMaxRows?: number;
+  desktopColumns: number;
+  mobileColumns: number;
+  maxItemsPerRow: number;
+  autoSingleRowThreshold?: number;
 }
 
 export interface StoreConfig {
@@ -394,7 +444,151 @@ export interface StoreConfig {
   orderLockDurationHours?: number;
   orderPolicyText?: string;
   lastViewedOrderTimestamp?: number;
+  // Showcase Section Visibility & Headings
+  isPreOrderSectionVisible?: boolean;
+  isBuyMoreSectionVisible?: boolean;
+  ourProductsSectionTitle?: string;
+  preOrderSectionTitle?: string;
+  preOrderSectionSubtitle?: string;
+  buyMoreSectionTitle?: string;
+  buyMoreSectionSubtitle?: string;
+  // Section Banners (#2 Before Upcoming Products, #3 Above Buy One Get More)
+  upcomingBanner?: SectionBannerConfig;
+  buyMoreBanner?: SectionBannerConfig;
+  // Admin-configurable Storefront Grid & Row Layout Settings per Section
+  sectionLayouts?: {
+    ourProducts: SectionGridLayoutConfig;
+    preOrder: SectionGridLayoutConfig;
+    buyMore: SectionGridLayoutConfig;
+  };
 }
+
+export interface PreOrderProduct {
+  id: string;
+  title: string;
+  slug?: string;
+  productCode?: string;
+  tagline?: string;
+  category: string;
+  price: number;
+  salePrice: number;
+  advanceType?: 'fixed' | 'percent';
+  advanceValue?: number;
+  advanceAmount?: number;
+  images: string[];
+  videoUrl?: string;
+  description: string;
+  colors?: (string | ProductColorVariant)[];
+  sizes?: (string | ProductSizeStock)[];
+  variations?: ProductVariation[];
+  hasColorVariants?: boolean;
+  stock?: number;
+  preOrderMaxQuota?: number;
+  preOrderBookedCount?: number;
+  shippingWeight?: string;
+  shippingDimensions?: string;
+  isFreeShipping?: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+  keywords?: string[];
+  weWillGetText?: string; // Shown ONLY when non-empty
+  youWillGetText?: string; // Shown ONLY when non-empty
+  isVisible: boolean;
+  position?: number;
+  createdAt: string;
+}
+
+export interface PreOrderRecord {
+  id: string;
+  preOrderNumber: string;
+  productId: string;
+  productTitle: string;
+  productImage: string;
+  unitPrice: number;
+  quantity: number;
+  totalAmount: number;
+  advancePaidAmount?: number;
+  dueAmount?: number;
+  paymentMethod?: string;
+  paymentTrxId?: string;
+  senderPhone?: string;
+  linkedOrderNumber?: string;
+  selectedColor?: string;
+  selectedSize?: string;
+  weWillGetText?: string;
+  youWillGetText?: string;
+  customerName: string;
+  phone: string;
+  altPhone?: string;
+  division?: string;
+  district?: string;
+  upazila?: string;
+  address: string;
+  cityRegion: string;
+  notes?: string;
+  status: 'Pending' | 'Confirmed' | 'Arrived' | 'Delivered' | 'Canceled';
+  isSeen?: boolean;
+  createdAt: string;
+  orderTimeFormatted?: string;
+  orderTimestamp?: number;
+}
+
+export interface BuyMoreFreeItem {
+  id: string;
+  productId?: string;
+  title: string;
+  image?: string;
+  quantity: number;
+  value?: number;
+}
+
+export interface BuyMoreOffer {
+  id: string;
+  title: string;
+  slug?: string;
+  productCode?: string;
+  badgeText: string;
+  offerType: 'bogo' | 'buy_more_get_more' | 'free_gift';
+  mainProductId?: string;
+  mainProductTitle: string;
+  mainProductImage: string;
+  images?: string[];
+  videoUrl?: string;
+  buyQuantity: number;
+  price: number;
+  regularValue?: number;
+  freeItems: BuyMoreFreeItem[];
+  description: string;
+  voucherCode?: string;
+  colors?: ProductColorVariant[];
+  sizes?: ProductSizeStock[];
+  isFreeShipping?: boolean;
+  expiresAt?: string;
+  offerDurationDays?: number;
+  offerDurationHours?: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  keywords?: string[];
+  isVisible: boolean;
+  position?: number;
+  createdAt: string;
+}
+
+export interface BuyMoreVoucher {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  minBuyQty: number;
+  freeQty: number;
+  freeProductNote: string;
+  discountPercent?: number;
+  expiryDate?: string;
+  isVisible: boolean;
+  createdAt: string;
+}
+
+export type ShowcaseSectionKey = 'our_products' | 'pre_order' | 'buy_more';
 
 export type AdminPermissionKey = 
   | 'dashboard'

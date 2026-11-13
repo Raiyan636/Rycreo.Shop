@@ -29,12 +29,15 @@ import {
   Cloud,
   Store,
   RotateCcw,
-  RotateCw
+  RotateCw,
+  Gift
 } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { useStore, AdminTabType } from '../../context/StoreContext';
 import { HeroManager } from './HeroManager';
 import { ProductManager } from './ProductManager';
+import { PreOrderManager } from './PreOrderManager';
+import { BuyMoreManager } from './BuyMoreManager';
 import { CategoryManager } from './CategoryManager';
 import { QuickCategoryManager } from './QuickCategoryManager';
 import { AttributeManager } from './AttributeManager';
@@ -63,6 +66,9 @@ export const AdminDashboard: React.FC = () => {
     activeAdminTab, 
     setActiveAdminTab,
     products,
+    preOrderProducts,
+    preOrders,
+    buyMoreOffers,
     categories,
     quickCategories,
     attributes,
@@ -152,9 +158,13 @@ export const AdminDashboard: React.FC = () => {
     alert?: boolean;
   }
 
+  const unseenPreOrdersCount = preOrders.filter(o => !o.isSeen).length;
+
   const navTabs = React.useMemo<NavTabItem[]>(() => [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'products', label: 'Products', icon: Package, badge: products.length },
+    { id: 'pre_orders', label: 'Pre-Order Products', icon: Clock, badge: unseenPreOrdersCount > 0 ? `${unseenPreOrdersCount} New` : preOrderProducts.length, alert: unseenPreOrdersCount > 0 },
+    { id: 'buy_more', label: 'Buy One Get More', icon: Gift, badge: buyMoreOffers.length },
     { id: 'categories', label: 'Categories', icon: Layers, badge: categories.length },
     { id: 'static_pages', label: 'Static Pages', icon: FileText, badge: staticPages.length },
     { id: 'order_policy', label: 'Order Policy & Settings', icon: FileText },
@@ -162,7 +172,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'attributes', label: 'Attributes', icon: Sliders },
     { id: 'orders', label: 'Orders', icon: ShoppingBag, badge: newOrdersCount > 0 ? `${newOrdersCount} New` : orders.length, alert: newOrdersCount > 0 },
     { id: 'customers', label: 'Customers', icon: Users, badge: customers.length },
-    { id: 'hero', label: 'Banners', icon: ImageIcon, badge: heroSlides.length },
+    { id: 'hero', label: '3 Banners', icon: ImageIcon, badge: heroSlides.length + 2 },
     { id: 'coupons', label: 'Coupons', icon: Tag, badge: coupons.filter(c => c.active).length },
     { id: 'reviews', label: 'Reviews', icon: Star, badge: pendingReviewsCount > 0 ? `${pendingReviewsCount} pending` : reviews.length, alert: pendingReviewsCount > 0 },
     { id: 'inventory', label: 'Inventory', icon: AlertTriangle, badge: lowStockCount > 0 ? `${lowStockCount} low` : undefined, alert: lowStockCount > 0 },
@@ -173,7 +183,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'security', label: 'Security Setting', icon: Lock },
     { id: 'search_analytics', label: 'Search Analytics', icon: Search, badge: searchLogs.length },
     { id: 'access_control', label: 'Access Control', icon: Users, badge: adminsList.length + 1 }
-  ], [products.length, categories.length, staticPages.length, quickCategories.length, newOrdersCount, orders.length, customers.length, heroSlides.length, coupons, pendingReviewsCount, reviews.length, lowStockCount, searchLogs.length, adminsList.length]);
+  ], [products.length, unseenPreOrdersCount, preOrderProducts.length, buyMoreOffers.length, categories.length, staticPages.length, quickCategories.length, newOrdersCount, orders.length, customers.length, heroSlides.length, coupons, pendingReviewsCount, reviews.length, lowStockCount, searchLogs.length, adminsList.length]);
 
   const currentAdminRecord = React.useMemo(() => {
     return adminsList.find(x => x.email.toLowerCase() === loggedInAdminEmail.toLowerCase());
@@ -680,6 +690,26 @@ export const AdminDashboard: React.FC = () => {
                     <p className="font-bold text-white text-xs group-hover:text-[#38BDF8]">Promo Coupons</p>
                     <p className="text-[11px] text-slate-400 mt-1">Configure percentage or fixed discount limits and expiry.</p>
                   </button>
+
+                  <button
+                    onClick={() => setActiveAdminTab('pre_orders')}
+                    className="p-4 rounded-xl bg-slate-900 border border-slate-700 hover:border-amber-400 text-left transition-colors group cursor-pointer"
+                  >
+                    <p className="font-bold text-white text-xs group-hover:text-amber-300">
+                      Pre-Order Management ({preOrders.length})
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">Upcoming products, delivery timelines &amp; pre-order bookings.</p>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveAdminTab('buy_more')}
+                    className="p-4 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-400 text-left transition-colors group cursor-pointer"
+                  >
+                    <p className="font-bold text-white text-xs group-hover:text-indigo-300">
+                      Buy One Get More ({buyMoreOffers.length})
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">BOGO deals, paired free items &amp; offer voucher folders.</p>
+                  </button>
                 </div>
               </div>
 
@@ -838,6 +868,8 @@ export const AdminDashboard: React.FC = () => {
           )}
 
           {activeAdminTab === 'products' && <ProductManager />}
+          {activeAdminTab === 'pre_orders' && <PreOrderManager />}
+          {activeAdminTab === 'buy_more' && <BuyMoreManager />}
           {activeAdminTab === 'categories' && <CategoryManager />}
           {activeAdminTab === 'static_pages' && <StaticPageManager />}
           {activeAdminTab === 'order_policy' && <OrderPolicySettingsManager />}

@@ -132,7 +132,10 @@ import {
   INITIAL_REVIEWS, 
   INITIAL_QUICK_CATEGORIES, 
   INITIAL_STATIC_PAGES, 
-  INITIAL_STORE_CONFIG 
+  INITIAL_STORE_CONFIG,
+  INITIAL_PREORDER_PRODUCTS,
+  INITIAL_BUYMORE_OFFERS,
+  INITIAL_BUYMORE_VOUCHERS
 } from './src/data/initialData';
 
 const dataDir = path.resolve(__dirname, 'data');
@@ -146,12 +149,16 @@ const DEFAULT_ADMINS_LIST = [
     email: "rycreoshop@gmail.com",
     pass: "Ahmad636Taseen@#",
     code: "2026",
-    allowedTabs: ["overview", "products", "orders", "inventory", "categories", "coupons", "reviews", "hero", "settings", "payment_gateways", "seo", "media", "static_pages", "security", "search_analytics", "access_control"]
+    allowedTabs: ["overview", "products", "pre_orders", "buy_more", "orders", "inventory", "categories", "coupons", "reviews", "hero", "settings", "payment_gateways", "seo", "media", "static_pages", "security", "search_analytics", "access_control"]
   }
 ];
 
 interface StoreDatabase {
   products: any[];
+  preOrderProducts: any[];
+  preOrders: any[];
+  buyMoreOffers: any[];
+  buyMoreVouchers: any[];
   heroSlides: any[];
   categories: any[];
   quickCategories: any[];
@@ -167,6 +174,7 @@ interface StoreDatabase {
   adminSecretCode: string;
   updatedAt: string;
   version: number;
+  catalogV2Seeded?: boolean;
 }
 
 const firebaseConfig = {
@@ -222,7 +230,10 @@ function loadStoreDb(): StoreDatabase {
       const content = fs.readFileSync(dbFilePath, 'utf-8');
       const parsed = JSON.parse(content);
       if (parsed && Array.isArray(parsed.products)) {
-        // Ensure all required collections exist
+        if (!Array.isArray(parsed.preOrderProducts)) parsed.preOrderProducts = INITIAL_PREORDER_PRODUCTS;
+        if (!Array.isArray(parsed.preOrders)) parsed.preOrders = [];
+        if (!Array.isArray(parsed.buyMoreOffers)) parsed.buyMoreOffers = INITIAL_BUYMORE_OFFERS;
+        if (!Array.isArray(parsed.buyMoreVouchers)) parsed.buyMoreVouchers = INITIAL_BUYMORE_VOUCHERS;
         if (!Array.isArray(parsed.heroSlides)) parsed.heroSlides = INITIAL_HERO_SLIDES;
         if (!Array.isArray(parsed.categories)) parsed.categories = INITIAL_CATEGORIES;
         if (!Array.isArray(parsed.quickCategories)) parsed.quickCategories = INITIAL_QUICK_CATEGORIES;
@@ -236,6 +247,34 @@ function loadStoreDb(): StoreDatabase {
         if (!parsed.adminEmail) parsed.adminEmail = 'rycreoshop@gmail.com';
         if (!parsed.adminPassword) parsed.adminPassword = 'Ahmad636Taseen@#';
         if (!parsed.adminSecretCode) parsed.adminSecretCode = 'Shop2026';
+
+        // One-time additive migration for new showcase products (socks, kids sets, glass jars, badminton corks)
+        if (!parsed.catalogV2Seeded) {
+          const newProdIds = new Set(['prod-20', 'prod-21', 'prod-22', 'prod-23', 'prod-24']);
+          const existingProdIds = new Set(parsed.products.map((p: any) => p.id));
+          const prodAdditions = INITIAL_PRODUCTS.filter(p => newProdIds.has(p.id) && !existingProdIds.has(p.id));
+          if (prodAdditions.length > 0) {
+            parsed.products = [...parsed.products, ...prodAdditions];
+          }
+
+          const newPreIds = new Set(['pre-prod-6', 'pre-prod-7', 'pre-prod-8', 'pre-prod-9', 'pre-prod-10', 'pre-prod-11', 'pre-prod-12', 'pre-prod-13']);
+          const existingPreIds = new Set(parsed.preOrderProducts.map((p: any) => p.id));
+          const preAdditions = INITIAL_PREORDER_PRODUCTS.filter(p => newPreIds.has(p.id) && !existingPreIds.has(p.id));
+          if (preAdditions.length > 0) {
+            parsed.preOrderProducts = [...parsed.preOrderProducts, ...preAdditions];
+          }
+
+          const newBuyMoreIds = new Set(['bogo-5', 'bogo-6', 'bogo-7', 'bogo-8', 'bogo-9']);
+          const existingBuyMoreIds = new Set(parsed.buyMoreOffers.map((b: any) => b.id));
+          const buyMoreAdditions = INITIAL_BUYMORE_OFFERS.filter(b => newBuyMoreIds.has(b.id) && !existingBuyMoreIds.has(b.id));
+          if (buyMoreAdditions.length > 0) {
+            parsed.buyMoreOffers = [...parsed.buyMoreOffers, ...buyMoreAdditions];
+          }
+
+          parsed.catalogV2Seeded = true;
+          saveStoreDbToDisk(parsed);
+        }
+
         return parsed;
       }
     }
@@ -245,6 +284,10 @@ function loadStoreDb(): StoreDatabase {
 
   const initialDb: StoreDatabase = {
     products: INITIAL_PRODUCTS,
+    preOrderProducts: INITIAL_PREORDER_PRODUCTS,
+    preOrders: [],
+    buyMoreOffers: INITIAL_BUYMORE_OFFERS,
+    buyMoreVouchers: INITIAL_BUYMORE_VOUCHERS,
     heroSlides: INITIAL_HERO_SLIDES,
     categories: INITIAL_CATEGORIES,
     quickCategories: INITIAL_QUICK_CATEGORIES,
@@ -259,7 +302,8 @@ function loadStoreDb(): StoreDatabase {
     adminPassword: 'Ahmad636Taseen@#',
     adminSecretCode: 'Shop2026',
     updatedAt: new Date().toISOString(),
-    version: 1
+    version: 1,
+    catalogV2Seeded: true
   };
   saveStoreDbToDisk(initialDb);
   return initialDb;
@@ -310,6 +354,10 @@ app.post('/api/store/sync', (req, res) => {
   try {
     const overrides = req.body || {};
     if (Array.isArray(overrides.products)) storeDb.products = overrides.products;
+    if (Array.isArray(overrides.preOrderProducts)) storeDb.preOrderProducts = overrides.preOrderProducts;
+    if (Array.isArray(overrides.preOrders)) storeDb.preOrders = overrides.preOrders;
+    if (Array.isArray(overrides.buyMoreOffers)) storeDb.buyMoreOffers = overrides.buyMoreOffers;
+    if (Array.isArray(overrides.buyMoreVouchers)) storeDb.buyMoreVouchers = overrides.buyMoreVouchers;
     if (Array.isArray(overrides.heroSlides)) storeDb.heroSlides = overrides.heroSlides;
     if (Array.isArray(overrides.categories)) storeDb.categories = overrides.categories;
     if (Array.isArray(overrides.quickCategories)) storeDb.quickCategories = overrides.quickCategories;
@@ -328,7 +376,7 @@ app.post('/api/store/sync', (req, res) => {
 
     saveStoreDbToDisk(storeDb);
     pushToFirestore(overrides);
-    console.log(`[Server DB: SYNC] Merged updates. Products: ${storeDb.products.length}, Hero: ${storeDb.heroSlides.length}, QuickCategories: ${storeDb.quickCategories.length}, Reviews: ${storeDb.reviews.length}, Admins: ${storeDb.adminsList.length}`);
+    console.log(`[Server DB: SYNC] Merged updates. Products: ${storeDb.products.length}, PreOrderProducts: ${storeDb.preOrderProducts.length}, BuyMoreOffers: ${storeDb.buyMoreOffers.length}`);
     return res.json({ success: true, updatedAt: storeDb.updatedAt, data: storeDb });
   } catch (err: any) {
     console.error("[Server DB: SYNC FAILED]", err);
@@ -705,6 +753,37 @@ app.delete('/api/store/orders', (req, res) => {
   }
 });
 
+// 13. Pre-Orders CRUD endpoints
+app.post('/api/store/pre-orders', (req, res) => {
+  try {
+    const preOrder = req.body;
+    if (!preOrder || !preOrder.id) {
+      return res.status(400).json({ error: 'Valid pre-order record is required' });
+    }
+    const idx = storeDb.preOrders.findIndex(o => o.id === preOrder.id);
+    if (idx > -1) {
+      storeDb.preOrders[idx] = preOrder;
+    } else {
+      storeDb.preOrders.unshift(preOrder);
+    }
+    saveStoreDbToDisk(storeDb);
+    return res.json({ success: true, preOrder, preOrders: storeDb.preOrders, updatedAt: storeDb.updatedAt });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/store/pre-orders/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    storeDb.preOrders = storeDb.preOrders.filter(o => o.id !== id);
+    saveStoreDbToDisk(storeDb);
+    return res.json({ success: true, deletedId: id, preOrders: storeDb.preOrders, updatedAt: storeDb.updatedAt });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 // Telemetry Storage for Real-time Live Search Logs
@@ -892,6 +971,17 @@ if (!isProd) {
   });
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
+});
+
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`Port ${port} in use, trying fallback port 3001...`);
+    app.listen(3001, () => {
+      console.log(`Server running at http://localhost:3001`);
+    });
+  } else {
+    console.error('Server listen error:', err);
+  }
 });

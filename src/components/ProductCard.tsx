@@ -1,9 +1,10 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { ShoppingBag, Heart, Eye, Play, Sparkles, Check, Star, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingBag, Heart, Eye, Play, Sparkles, Check, Star, Truck, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { Product } from '../types/store';
 import { useStore } from '../context/StoreContext';
 import { useToast } from './common/Toast';
 import { getVariationColor } from '../utils/stockHelper';
+import { resolveStoreAssetUrl } from '../utils/clientAssetResolver';
 
 interface ProductCardProps {
   product: Product;
@@ -57,18 +58,19 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
   // Images list: combine product images and any color images cleanly without mixing across products
   const productImages = useMemo(() => {
     const list: string[] = [];
+    const addUnique = (raw?: string) => {
+      if (!raw) return;
+      const resolved = resolveStoreAssetUrl(raw);
+      if (resolved && !list.includes(resolved)) list.push(resolved);
+    };
     if (product.images && product.images.length > 0) {
-      list.push(...product.images);
+      product.images.forEach(addUnique);
     }
     // Also include color specific images if not already in list
     enabledColors.forEach(c => {
-      if (c.image && !list.includes(c.image)) {
-        list.push(c.image);
-      }
+      addUnique(c.image);
       if (Array.isArray(c.gallery)) {
-        c.gallery.forEach(g => {
-          if (g && !list.includes(g)) list.push(g);
-        });
+        c.gallery.forEach(addUnique);
       }
     });
     return list.length > 0 ? list : [
@@ -188,7 +190,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
     const foundCol = enabledColors.find(c => c.name.toLowerCase() === colName.toLowerCase());
     const targetImg = foundCol?.image || (foundCol?.gallery && foundCol.gallery[0]);
     if (targetImg) {
-      const imgIdx = productImages.findIndex(img => img === targetImg);
+      const resolved = resolveStoreAssetUrl(targetImg);
+      const imgIdx = productImages.findIndex(img => img === resolved);
       if (imgIdx !== -1) {
         setCurrentImageIndex(imgIdx);
       }
@@ -231,15 +234,19 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
 
   const activeColorObj = enabledColors.find(c => c.name === selectedColorName);
 
+  const isPreOrder = product.availability === 'preorder' || !!product.isPreOrder;
+  const preOrderDays = product.preOrderDays || 20;
+  const displayedTitle = product.title;
+
   return (
     <div 
       id={`product-card-${product.id}`}
       onClick={handleOpenDetails}
-      className="group bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-xl hover:border-[#38BDF8]/50 transition-all duration-300 flex flex-col overflow-hidden cursor-pointer relative active:scale-[0.99]"
+      className="group bg-[#F8FAFC] rounded-xl border border-slate-200/90 shadow-xs hover:shadow-lg hover:border-[#38BDF8]/50 transition-all duration-300 flex flex-col overflow-hidden cursor-pointer relative active:scale-[0.99]"
     >
       {/* 1. Image & Badges Container with Swipe & Drag Navigation */}
       <div 
-        className="relative aspect-square w-full bg-slate-50 flex items-center justify-center overflow-hidden select-none"
+        className="relative aspect-[4/3] w-full bg-[#EFF3F8] flex items-center justify-center overflow-hidden select-none"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -255,15 +262,17 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
         />
 
         {/* Unified Stock Status Badge */}
-        {isOutOfStock ? (
-          <span className="absolute top-2 left-2 px-2 py-0.5 bg-rose-600 text-white text-[9px] font-extrabold uppercase tracking-wider rounded-md z-10 shadow-xs">
-            Out of Stock
-          </span>
-        ) : isLowStock ? (
-          <span className="absolute top-2 left-2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wider rounded-md z-10 shadow-xs">
-            Low Stock
-          </span>
-        ) : null}
+        {!isPreOrder && (
+          isOutOfStock ? (
+            <span className="absolute top-2 left-2 px-2 py-0.5 bg-rose-600 text-white text-[9px] font-extrabold uppercase tracking-wider rounded-md z-10 shadow-xs">
+              Out of Stock
+            </span>
+          ) : isLowStock ? (
+            <span className="absolute top-2 left-2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wider rounded-md z-10 shadow-xs">
+              Low Stock ({activeColorStock} left)
+            </span>
+          ) : null
+        )}
 
         {/* Previous / Next Chevron Buttons (Visible on hover & touch, stops modal click) */}
         {productImages.length > 1 && (
@@ -326,6 +335,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
         {/* Top Floating Badges */}
         <div className="absolute top-2 left-2 right-2 flex items-start justify-between pointer-events-none gap-1.5 z-10">
           <div className="flex flex-col gap-1 items-start">
+            {/* Pre-Order Blue Badge */}
+            {isPreOrder && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white text-[9.5px] font-black uppercase tracking-wider shadow-sm animate-pulse-subtle">
+                <Clock className="w-2.5 h-2.5" />
+                PRE-ORDER
+              </span>
+            )}
+
             {product.isPujaSpecial && (
               <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-[9px] font-black uppercase tracking-wider shadow-xs">
                 <Sparkles className="w-2.5 h-2.5" /> PUJA
@@ -381,53 +398,83 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
       </div>
 
       {/* 2. Details Container - Tight, Compact & Clean */}
-      <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-between space-y-1.5">
+      <div className="p-2 sm:p-2.5 flex-1 flex flex-col justify-between space-y-1">
         <div>
           {/* Category & Stock Alert */}
-          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium mb-0.5">
-            <span className="uppercase tracking-wider font-semibold text-[#334155] truncate max-w-[100px]">
+          <div className="flex items-center justify-between text-[9.5px] text-slate-500 font-medium mb-0.5">
+            <span className="uppercase tracking-wider font-semibold text-[#334155] truncate max-w-[95px]">
               {product.category}
             </span>
-            <span className={`text-[9.5px] font-extrabold ${stockTextColor}`}>
-              {stockBadgeText}
+            <span className={`text-[9px] font-extrabold ${isPreOrder ? 'text-blue-700' : stockTextColor}`}>
+              {isPreOrder
+                ? 'Pre-Order Active'
+                : isLowStock
+                  ? `Low Stock (${activeColorStock} left)`
+                  : stockBadgeText}
             </span>
           </div>
 
           {/* Title */}
-          <h3 className="font-bold text-slate-800 text-xs sm:text-[12.5px] leading-snug group-hover:text-[#6366F1] transition-colors line-clamp-2 min-h-[2.5em]">
-            {product.title}
+          <h3 className="font-bold text-slate-800 text-[11.5px] sm:text-xs leading-snug group-hover:text-[#6366F1] transition-colors line-clamp-2 min-h-[2.2em]">
+            {displayedTitle}
           </h3>
+
+          {/* Pre-Order Expected Arrival Message */}
+          {isPreOrder && (
+            <div className="mt-1 flex items-center gap-1 text-[9.5px] text-blue-700 bg-blue-50/90 px-1.5 py-0.5 rounded-md border border-blue-200/80 font-semibold">
+              <Clock className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+              <span className="truncate">
+                Est. Delivery: ~{preOrderDays} Days
+              </span>
+            </div>
+          )}
+
+          {/* Wholesale & Reseller Pricing Indicators */}
+          {(product.wholesalePrice || product.resellerPrice) && (
+            <div className="mt-1 flex items-center gap-1 flex-wrap text-[8.5px] font-bold">
+              {product.wholesalePrice && (
+                <span className="bg-indigo-50 text-indigo-700 px-1 py-0.5 rounded border border-indigo-200">
+                  Wholesale: ৳{product.wholesalePrice}
+                </span>
+              )}
+              {product.resellerPrice && (
+                <span className="bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded border border-emerald-200">
+                  Reseller: ৳{product.resellerPrice}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Price & Rating */}
-        <div className="pt-1 flex items-end justify-between border-t border-slate-100">
+        <div className="pt-0.5 flex items-end justify-between border-t border-slate-100">
           <div>
             <div className="flex items-center flex-wrap gap-1">
               {product.isFreeShipping && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-black tracking-wide border border-emerald-300">
+                <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[8.5px] font-black tracking-wide border border-emerald-300">
                   <Truck className="w-2.5 h-2.5 text-emerald-600" /> Free
                 </span>
               )}
-              <span className="text-sm sm:text-base font-black text-[#1E293B]">
+              <span className="text-[13px] sm:text-sm font-black text-[#1E293B]">
                 ৳{effectivePrice}
               </span>
               {hasDiscount && (
-                <span className="text-[10px] text-slate-400 line-through font-semibold">
+                <span className="text-[9.5px] text-slate-400 line-through font-semibold">
                   ৳{product.price}
                 </span>
               )}
               {displayedDiscountBadge && (
-                <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-600 text-[8.5px] font-extrabold uppercase border border-rose-200">
+                <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-600 text-[8px] font-extrabold uppercase border border-rose-200">
                   {displayedDiscountBadge}
                 </span>
               )}
             </div>
 
             {reviewCount > 0 && (
-              <div className="flex items-center gap-0.5 mt-0.5 text-amber-500 font-bold text-[10px]">
-                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+              <div className="flex items-center gap-0.5 mt-0.5 text-amber-500 font-bold text-[9.5px]">
+                <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
                 <span>{avgRating}</span>
-                <span className="text-slate-400 font-normal text-[9px]">({reviewCount})</span>
+                <span className="text-slate-400 font-normal text-[8.5px]">({reviewCount})</span>
               </div>
             )}
           </div>
@@ -437,9 +484,9 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
         {enabledColors.length > 0 && (
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="pt-1 border-t border-slate-100 flex flex-col gap-0.5 select-none"
+            className="pt-0.5 border-t border-slate-100 flex flex-col gap-0.5 select-none"
           >
-            <div className="flex items-center justify-between text-[9px]">
+            <div className="flex items-center justify-between text-[8.5px]">
               <span className="text-slate-500 font-semibold flex items-center gap-1">
                 Color:
                 {selectedColorName && (
@@ -470,12 +517,12 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
                     } ${isColOutOfStock ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
                     <div 
-                      className="w-4 h-4 rounded-full border border-slate-300 relative shadow-2xs overflow-hidden flex items-center justify-center bg-slate-100"
+                      className="w-3.5 h-3.5 rounded-full border border-slate-300 relative shadow-2xs overflow-hidden flex items-center justify-center bg-slate-100"
                       style={{ backgroundColor: col.hex || '#000000' }}
                     >
                       {col.image && (
                         <img 
-                          src={col.image} 
+                          src={resolveStoreAssetUrl(col.image)} 
                           alt={col.name} 
                           className="w-full h-full object-cover" 
                         />
@@ -498,51 +545,51 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
         )}
 
         {/* 4. Action Buttons Stack: Details link + Side-by-Side Buy Now & Add to Cart (Compact Height) */}
-        <div className="space-y-1 pt-1">
+        <div className="space-y-1 pt-0.5">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               handleOpenDetails();
             }}
-            className="w-full py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-[10px] flex items-center justify-center gap-1 transition-colors cursor-pointer border border-slate-200/90"
+            className="w-full py-0.5 sm:py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-[9.5px] flex items-center justify-center gap-1 transition-colors cursor-pointer border border-slate-200/90"
           >
             <span>🔍 Details / View Details</span>
           </button>
 
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-2 gap-1">
             <button
               type="button"
               onClick={handleBuyNow}
-              disabled={isOutOfStock || isActiveColorOutOfStock}
-              className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black text-[11px] flex items-center justify-center gap-1 transition-all shadow-2xs cursor-pointer disabled:cursor-not-allowed"
+              disabled={!isPreOrder && (isOutOfStock || isActiveColorOutOfStock)}
+              className="w-full py-1 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black text-[10.5px] flex items-center justify-center gap-1 transition-all shadow-2xs cursor-pointer disabled:cursor-not-allowed"
             >
-              <span>⚡ Buy Now</span>
+              <span>{isPreOrder ? '⚡ Pre-Order' : '⚡ Buy Now'}</span>
             </button>
 
             <button
               type="button"
               onClick={handleQuickAdd}
-              disabled={isOutOfStock || isActiveColorOutOfStock}
-              className={`w-full py-1.5 rounded-lg font-black text-[11px] flex items-center justify-center gap-1 transition-all duration-200 shadow-2xs ${
+              disabled={!isPreOrder && (isOutOfStock || isActiveColorOutOfStock)}
+              className={`w-full py-1 rounded-lg font-black text-[10.5px] flex items-center justify-center gap-1 transition-all duration-200 shadow-2xs ${
                 addedAnimation
                   ? 'bg-[#10B981] text-white'
-                  : (isOutOfStock || isActiveColorOutOfStock)
+                  : (!isPreOrder && (isOutOfStock || isActiveColorOutOfStock))
                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                     : 'bg-gradient-to-r from-[#38BDF8] to-[#6366F1] text-white hover:shadow-xs active:scale-95 cursor-pointer'
               }`}
             >
               {addedAnimation ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-white" />
+                  <Check className="w-3 h-3 text-white" />
                   <span>Added!</span>
                 </>
-              ) : (isOutOfStock || isActiveColorOutOfStock) ? (
-                <span>Out</span>
+              ) : (!isPreOrder && (isOutOfStock || isActiveColorOutOfStock)) ? (
+                <span>Out of Stock</span>
               ) : (
                 <>
-                  <ShoppingBag className="w-3.5 h-3.5" />
-                  <span>Add</span>
+                  <ShoppingBag className="w-3 h-3" />
+                  <span>{isPreOrder ? 'Pre-Order' : 'Add'}</span>
                 </>
               )}
             </button>

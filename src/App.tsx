@@ -20,6 +20,14 @@ import { ScrollProgressBar } from './components/common/ScrollProgressBar';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { SearchPage } from './components/SearchPage';
 import { PullToRefresh } from './components/common/PullToRefresh';
+import { ShowcaseRowMatrix } from './components/ShowcaseRowMatrix';
+import { PreOrderCard } from './components/PreOrderCard';
+import { PreOrderModal } from './components/PreOrderModal';
+import { BuyMoreCard } from './components/BuyMoreCard';
+import { BuyMoreOfferModal } from './components/BuyMoreOfferModal';
+import { SeeMorePage } from './components/SeeMorePage';
+import { SectionPromoBanner } from './components/SectionPromoBanner';
+import { INITIAL_STORE_CONFIG } from './data/initialData';
 import { 
   Sparkles, 
   ArrowUpDown, 
@@ -31,6 +39,10 @@ import {
   Flame, 
   Zap, 
   Clock, 
+  Gift,
+  Ticket,
+  Copy,
+  Check,
   ChevronRight,
   ChevronLeft,
   ArrowRight,
@@ -40,6 +52,9 @@ import {
 const MainAppContent: React.FC = () => {
   const { 
     products, 
+    preOrderProducts,
+    buyMoreOffers,
+    buyMoreVouchers,
     categories,
     activeCategory, 
     setActiveCategory, 
@@ -52,6 +67,7 @@ const MainAppContent: React.FC = () => {
     setIsVoucherModalOpen,
     setActivePolicyModal,
     collectedVouchers,
+    collectVoucher,
     quickCategories,
     selectedStaticPage,
     setSelectedStaticPage,
@@ -63,19 +79,28 @@ const MainAppContent: React.FC = () => {
     logoutAdmin,
     selectedProduct,
     setSelectedProduct,
+    selectedPreOrderProduct,
+    setSelectedPreOrderProduct,
+    selectedBuyMoreOffer,
+    setSelectedBuyMoreOffer,
     isSearchPageOpen,
     setIsSearchPageOpen,
     isVariantModalOpen,
     variantModalProduct,
-    closeVariantModal
+    closeVariantModal,
+    activeSeeMoreSection,
+    setActiveSeeMoreSection
   } = useStore();
 
   const [sortBy, setSortBy] = useState<'featured' | 'price-low' | 'price-high' | 'rating'>('featured');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('All');
   const [filterFreeDelivery, setFilterFreeDelivery] = useState(false);
   const [filterFeatured, setFilterFeatured] = useState(false);
+  const [filterPreOrder, setFilterPreOrder] = useState(false);
+  const [filterBuyMore, setFilterBuyMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
+  const [copiedOfferVoucher, setCopiedOfferVoucher] = useState<string | null>(null);
   const itemsPerPage = 20;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -129,7 +154,12 @@ const MainAppContent: React.FC = () => {
   }, [activeCategory, selectedSubcategory, searchQuery]);
 
   // Preserve scroll & handle browser back navigation
-  const isProductModalActive = Boolean(selectedProduct || (isVariantModalOpen && variantModalProduct));
+  const isProductModalActive = Boolean(
+    selectedProduct ||
+    (isVariantModalOpen && variantModalProduct) ||
+    selectedPreOrderProduct ||
+    selectedBuyMoreOffer
+  );
 
   useEffect(() => {
     if (isProductModalActive) {
@@ -161,9 +191,18 @@ const MainAppContent: React.FC = () => {
   // Browser Back Button & Android navigation restoration
   useEffect(() => {
     const handlePopState = () => {
+      if (activeSeeMoreSection) {
+        setActiveSeeMoreSection(null);
+      }
       if (selectedProduct || isVariantModalOpen) {
         setSelectedProduct(null);
         closeVariantModal();
+      }
+      if (selectedPreOrderProduct) {
+        setSelectedPreOrderProduct(null);
+      }
+      if (selectedBuyMoreOffer) {
+        setSelectedBuyMoreOffer(null);
       }
 
       const savedY = sessionStorage.getItem('rycreo_return_scroll_y');
@@ -192,7 +231,18 @@ const MainAppContent: React.FC = () => {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [selectedProduct, isVariantModalOpen, setSelectedProduct, closeVariantModal]);
+  }, [
+    activeSeeMoreSection,
+    setActiveSeeMoreSection,
+    selectedProduct,
+    isVariantModalOpen,
+    setSelectedProduct,
+    closeVariantModal,
+    selectedPreOrderProduct,
+    setSelectedPreOrderProduct,
+    selectedBuyMoreOffer,
+    setSelectedBuyMoreOffer
+  ]);
 
   // Favicon & Title Sync
   useEffect(() => {
@@ -261,6 +311,86 @@ const MainAppContent: React.FC = () => {
   const currentCategoryObj = categories.find(c => c.name.toLowerCase() === activeCategory.toLowerCase());
   const pujaProducts = products.filter(p => p.isPujaSpecial || p.isFestiveSpecial);
 
+  const visiblePreOrderProducts = React.useMemo(
+    () =>
+      preOrderProducts
+        .filter(item => item.isVisible !== false)
+        .sort((a, b) => (a.position ?? 999) - (b.position ?? 999)),
+    [preOrderProducts]
+  );
+
+  const visibleBuyMoreOffers = React.useMemo(
+    () =>
+      buyMoreOffers
+        .filter(item => item.isVisible !== false)
+        .sort((a, b) => (a.position ?? 999) - (b.position ?? 999)),
+    [buyMoreOffers]
+  );
+
+  const visibleBuyMoreVouchers = React.useMemo(
+    () => buyMoreVouchers.filter(v => v.isVisible !== false),
+    [buyMoreVouchers]
+  );
+
+  const showPreOrderSection = storeConfig.isPreOrderSectionVisible !== false && visiblePreOrderProducts.length > 0;
+  const showBuyMoreSection = storeConfig.isBuyMoreSectionVisible !== false && visibleBuyMoreOffers.length > 0;
+
+  const isTypeFilterActive = filterPreOrder || filterBuyMore;
+
+  const filteredPreOrderCatalog = React.useMemo(() => {
+    if (storeConfig.isPreOrderSectionVisible === false) return [];
+    const qLower = searchQuery.toLowerCase().trim();
+    const list = visiblePreOrderProducts.filter((item) => {
+      const catMatch =
+        activeCategory === 'All' ||
+        (item.category || '').toLowerCase() === activeCategory.toLowerCase();
+      const freeShipMatch = !filterFreeDelivery || !!item.isFreeShipping;
+      const qMatch =
+        qLower === '' ||
+        (item.title || '').toLowerCase().includes(qLower) ||
+        (item.category || '').toLowerCase().includes(qLower) ||
+        (item.description || '').toLowerCase().includes(qLower) ||
+        (item.seoTitle || '').toLowerCase().includes(qLower) ||
+        (Array.isArray(item.keywords) && item.keywords.some((k) => (k || '').toLowerCase().includes(qLower)));
+      return catMatch && freeShipMatch && qMatch;
+    });
+    return [...list].sort((a, b) => {
+      const pA = a.salePrice > 0 ? a.salePrice : a.price;
+      const pB = b.salePrice > 0 ? b.salePrice : b.price;
+      if (sortBy === 'price-low') return pA - pB;
+      if (sortBy === 'price-high') return pB - pA;
+      return (a.position ?? 999) - (b.position ?? 999);
+    });
+  }, [visiblePreOrderProducts, storeConfig.isPreOrderSectionVisible, searchQuery, activeCategory, filterFreeDelivery, sortBy]);
+
+  const filteredBuyMoreCatalog = React.useMemo(() => {
+    if (storeConfig.isBuyMoreSectionVisible === false) return [];
+    const qLower = searchQuery.toLowerCase().trim();
+    const list = visibleBuyMoreOffers.filter((offer) => {
+      const freeShipMatch = !filterFreeDelivery || !!offer.isFreeShipping;
+      const qMatch =
+        qLower === '' ||
+        (offer.title || '').toLowerCase().includes(qLower) ||
+        (offer.mainProductTitle || '').toLowerCase().includes(qLower) ||
+        (offer.description || '').toLowerCase().includes(qLower) ||
+        (offer.seoTitle || '').toLowerCase().includes(qLower) ||
+        (Array.isArray(offer.keywords) && offer.keywords.some((k) => (k || '').toLowerCase().includes(qLower))) ||
+        (Array.isArray(offer.freeItems) && offer.freeItems.some((fi) => (fi.title || '').toLowerCase().includes(qLower)));
+      return freeShipMatch && qMatch;
+    });
+    return [...list].sort((a, b) => {
+      const pA = a.price;
+      const pB = b.price;
+      if (sortBy === 'price-low') return pA - pB;
+      if (sortBy === 'price-high') return pB - pA;
+      return (a.position ?? 999) - (b.position ?? 999);
+    });
+  }, [visibleBuyMoreOffers, storeConfig.isBuyMoreSectionVisible, searchQuery, filterFreeDelivery, sortBy]);
+
+  const displayedCatalogCount = isTypeFilterActive
+    ? (filterPreOrder ? filteredPreOrderCatalog.length : 0) + (filterBuyMore ? filteredBuyMoreCatalog.length : 0)
+    : sortedProducts.length;
+
   // Dynamic Daraz-style Shortcuts managed directly from Admin Dashboard
   const displayShortcuts = (quickCategories && quickCategories.length > 0)
     ? quickCategories.filter(qc => qc.active).sort((a, b) => (a.order || 0) - (b.order || 0))
@@ -289,28 +419,87 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <PullToRefresh>
-      <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#1E293B]">
-        {/* Scroll Progress Bar */}
-        <ScrollProgressBar />
+    <>
+      <PullToRefresh>
+        <div className="min-h-screen flex flex-col rycreo-wave-storefront text-[#1E293B] relative overflow-x-hidden">
 
+        {/* Layered Light-to-Deep Green Wavy ("ঢেউ ঢেউ") Backdrop Artwork behind Storefront Content */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 bottom-0 overflow-hidden z-0" aria-hidden="true">
+          {/* Upper Soft Mint Wave */}
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="w-full h-56 sm:h-72 text-[#A7F3D0]/55 mt-[380px] sm:mt-[460px]"
+          >
+            <path
+              fill="currentColor"
+              d="M0,96L60,122.7C120,149,240,203,360,208C480,213,600,171,720,144C840,117,960,107,1080,128C1200,149,1320,203,1380,229.3L1440,256L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z"
+            />
+          </svg>
+
+          {/* Mid Emerald Swell Wave */}
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="w-full h-64 sm:h-80 text-[#34D399]/35 mt-28"
+          >
+            <path
+              fill="currentColor"
+              d="M0,192L80,176C160,160,320,128,480,144C640,160,800,224,960,229.3C1120,235,1280,181,1360,154.7L1440,128L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z"
+            />
+          </svg>
+
+          {/* Deep Emerald Lower Ribbon Wave */}
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="w-full h-72 sm:h-96 text-[#059669]/45 mt-32"
+          >
+            <path
+              fill="currentColor"
+              d="M0,128L60,154.7C120,181,240,235,360,229.3C480,224,600,160,720,144C840,128,960,160,1080,181.3C1200,203,1320,213,1380,218.7L1440,224L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z"
+            />
+          </svg>
+
+          {/* Deep Forest Crest Wave */}
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="w-full h-72 sm:h-96 text-[#065F46]/55 mt-20"
+          >
+            <path
+              fill="currentColor"
+              d="M0,224L80,192C160,160,320,96,480,106.7C640,117,800,203,960,218.7C1120,235,1280,181,1360,154.7L1440,128L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z"
+            />
+          </svg>
+        </div>
 
         {/* Top Announcement Bar */}
         {(storeConfig.isTopBarNoticeActive !== false && storeConfig.topBarNotice) && (
-          <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 px-4 py-2 text-center text-xs sm:text-sm font-extrabold tracking-wide flex items-center justify-center gap-2 shadow-md">
+          <div className="relative z-10 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 px-4 py-2 text-center text-xs sm:text-sm font-extrabold tracking-wide flex items-center justify-center gap-2 shadow-md">
             <Sparkles className="w-4 h-4 text-slate-950 animate-pulse shrink-0" />
             <span>{storeConfig.topBarNotice}</span>
           </div>
         )}
 
         {/* Header Navigation with Menu button */}
-        <Header />
+        <div className="relative z-20">
+          <Header />
+        </div>
 
-      {/* Hero Multi-Slide Banner Carousel */}
-      <HeroCarousel />
+      {activeSeeMoreSection ? (
+        <div className="relative z-10 flex-1">
+          <SeeMorePage />
+        </div>
+      ) : (
+        <>
+      {/* Hero Multi-Slide Banner Carousel (Banner #1) */}
+      <div className="relative z-10">
+        <HeroCarousel />
+      </div>
 
       {/* DARAZ / GHORER BAZAR STYLE QUICK CATEGORY & VOUCHER HUB (Captivating Entrance Hook) */}
-      <section className="bg-white border-b border-slate-200 py-6 sm:py-8 shadow-2xs">
+      <section className="relative z-10 bg-white/80 backdrop-blur-sm border-b border-emerald-200/80 py-6 sm:py-8 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
           
           {/* 1. Live Voucher Banner Ticker (Hidden when unticked) */}
@@ -456,7 +645,7 @@ const MainAppContent: React.FC = () => {
       </section>
 
       {/* Main Catalog View */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-10 sm:space-y-12">
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-10 sm:space-y-12">
         
         {/* Puja Special Spotlight Banner (Dynamic Festival Highlight 2026) */}
         {storeConfig.isFestivalHighlightActive !== false && activeCategory === 'All' && !searchQuery && (
@@ -498,7 +687,7 @@ const MainAppContent: React.FC = () => {
 
         {/* Subcategories pill bar if active category has subcategories */}
         {currentCategoryObj && currentCategoryObj.subcategories && currentCategoryObj.subcategories.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none bg-[#F8FAFC] p-3 rounded-2xl border border-slate-200 shadow-2xs">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-1 shrink-0">
               Filter:
             </span>
@@ -529,36 +718,45 @@ const MainAppContent: React.FC = () => {
         )}
 
         {/* Catalog Header & Sort Options */}
-        <div id="products" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E2E8F0] pb-4">
+        <div id="products" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-300/60 pb-4 bg-white/75 backdrop-blur-sm rounded-2xl p-4 sm:p-5 shadow-2xs border border-emerald-100">
           <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] font-['Outfit'] tracking-tight flex items-center gap-2">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] font-['Outfit'] tracking-tight flex items-center gap-2 flex-wrap">
               <span>
-                {activeCategory === 'All' ? 'Curated Lifestyle Catalog' : activeCategory}
-                {selectedSubcategory !== 'All' ? ` › ${selectedSubcategory}` : ''}
+                {filterPreOrder && filterBuyMore
+                  ? 'Pre-Order & Buy 1 Get 1 Deals'
+                  : filterPreOrder
+                  ? (storeConfig.preOrderSectionTitle || 'Pre-Order Products')
+                  : filterBuyMore
+                  ? (storeConfig.buyMoreSectionTitle || 'Buy 1 Get 1 Offers')
+                  : activeCategory === 'All'
+                  ? 'Curated Lifestyle Catalog'
+                  : activeCategory}
+                {!isTypeFilterActive && selectedSubcategory !== 'All' ? ` › ${selectedSubcategory}` : ''}
               </span>
-              <span className="text-xs font-bold text-slate-500 bg-slate-200/80 px-2.5 py-1 rounded-full">
-                {sortedProducts.length} items
+              <span className="text-xs font-bold text-slate-500 bg-slate-200/80 px-2.5 py-1 rounded-full tabular-nums">
+                {displayedCatalogCount} items
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Explore premium apparel, watches, smart electronics & lifestyle items across Bangladesh.
+              Explore premium apparel, watches, smart electronics &amp; lifestyle items across Bangladesh.
             </p>
           </div>
 
-          {/* Action Filters & Sort dropdown */}
-          <div className="flex items-center flex-wrap gap-2.5">
+          {/* Action Filters, Sort & See More Button */}
+          <div className="flex items-center flex-wrap gap-2">
             {/* Free Delivery filter button */}
             <button
+              type="button"
               onClick={() => {
                 setFilterFreeDelivery(!filterFreeDelivery);
                 setCurrentPage(1);
               }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border whitespace-nowrap ${
                 filterFreeDelivery
                   ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-500/20'
-                  : 'bg-white text-slate-700 border-[#E2E8F0] hover:border-emerald-500 hover:text-emerald-700'
+                  : 'bg-[#F8FAFC] text-slate-700 border-[#E2E8F0] hover:border-emerald-500 hover:text-emerald-700'
               }`}
-              title="Filter by Free Delivery (ফ্রি ডেলিভারি পণ্য)"
+              title="Filter by Free Delivery"
             >
               <Truck className={`w-3.5 h-3.5 ${filterFreeDelivery ? 'text-white' : 'text-emerald-600'}`} />
               <span>Free Delivery</span>
@@ -567,24 +765,71 @@ const MainAppContent: React.FC = () => {
 
             {/* Featured filter button */}
             <button
+              type="button"
               onClick={() => {
                 setFilterFeatured(!filterFeatured);
+                setFilterPreOrder(false);
+                setFilterBuyMore(false);
                 setCurrentPage(1);
               }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                filterFeatured
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border whitespace-nowrap ${
+                filterFeatured && !isTypeFilterActive
                   ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white border-transparent shadow-md shadow-sky-500/20'
-                  : 'bg-white text-slate-700 border-[#E2E8F0] hover:border-[#38BDF8] hover:text-[#38BDF8]'
+                  : 'bg-[#F8FAFC] text-slate-700 border-[#E2E8F0] hover:border-[#38BDF8] hover:text-[#38BDF8]'
               }`}
-              title="Filter by Featured Products (ফিচার্ড পণ্য)"
+              title="Filter by Featured Products"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${filterFeatured ? 'text-white' : 'text-amber-500'}`} />
+              <Sparkles className={`w-3.5 h-3.5 ${filterFeatured && !isTypeFilterActive ? 'text-white' : 'text-amber-500'}`} />
               <span>Featured</span>
-              {filterFeatured && <X className="w-3 h-3 ml-0.5" />}
+              {filterFeatured && !isTypeFilterActive && <X className="w-3 h-3 ml-0.5" />}
             </button>
 
+            {/* Pre-Order filter pill */}
+            {storeConfig.isPreOrderSectionVisible !== false && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterPreOrder(!filterPreOrder);
+                  setFilterFeatured(false);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border whitespace-nowrap ${
+                  filterPreOrder
+                    ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-500/20'
+                    : 'bg-[#F8FAFC] text-slate-700 border-[#E2E8F0] hover:border-amber-500 hover:text-amber-700'
+                }`}
+                title="Filter by Pre-Order Products"
+              >
+                <Clock className={`w-3.5 h-3.5 ${filterPreOrder ? 'text-white' : 'text-amber-600'}`} />
+                <span>Pre-Order</span>
+                {filterPreOrder && <X className="w-3 h-3 ml-0.5" />}
+              </button>
+            )}
+
+            {/* Buy 1 Get 1 filter pill */}
+            {storeConfig.isBuyMoreSectionVisible !== false && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterBuyMore(!filterBuyMore);
+                  setFilterFeatured(false);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border whitespace-nowrap ${
+                  filterBuyMore
+                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20'
+                    : 'bg-[#F8FAFC] text-slate-700 border-[#E2E8F0] hover:border-indigo-500 hover:text-indigo-700'
+                }`}
+                title="Filter by Buy 1 Get 1 Combo Offers"
+              >
+                <Gift className={`w-3.5 h-3.5 ${filterBuyMore ? 'text-white' : 'text-indigo-600'}`} />
+                <span>Buy 1 Get 1</span>
+                {filterBuyMore && <X className="w-3 h-3 ml-0.5" />}
+              </button>
+            )}
+
             {/* Sort dropdown */}
-            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-[#E2E8F0] shadow-2xs">
+            <div className="flex items-center gap-2 bg-[#F8FAFC] px-3 py-2 rounded-xl border border-[#E2E8F0] shadow-2xs">
               <ArrowUpDown className="w-4 h-4 text-slate-400" />
               <span className="text-xs font-bold text-slate-600">Sort By:</span>
               <select
@@ -598,11 +843,94 @@ const MainAppContent: React.FC = () => {
                 <option value="rating">Top Customer Rated</option>
               </select>
             </div>
+
+            {/* See More Button for Active View */}
+            <button
+              type="button"
+              onClick={() =>
+                setActiveSeeMoreSection(
+                  filterPreOrder && !filterBuyMore
+                    ? 'pre_order'
+                    : filterBuyMore && !filterPreOrder
+                    ? 'buy_more'
+                    : 'our_products'
+                )
+              }
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+            >
+              <span>See More</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
-        {/* Products Grid */}
-        {paginatedProducts.length === 0 ? (
+        {/* Filtered Pre-Order / Buy 1 Get 1 Mode OR Section 1: Our Products */}
+        {isTypeFilterActive ? (
+          displayedCatalogCount === 0 ? (
+            <div className="py-16 text-center space-y-4 bg-white rounded-3xl border border-[#E2E8F0] p-8">
+              <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                <Filter className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">No items match your selected filter</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Try clearing the Free Delivery or Pre-Order / Buy 1 Get 1 filter to explore more items.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveCategory('All');
+                  setSelectedSubcategory('All');
+                  setSearchQuery('');
+                  setFilterFreeDelivery(false);
+                  setFilterFeatured(false);
+                  setFilterPreOrder(false);
+                  setFilterBuyMore(false);
+                }}
+                className="px-5 py-2.5 rounded-full bg-[#1E293B] text-white font-bold text-xs hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Show All Products
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {filterPreOrder && filteredPreOrderCatalog.length > 0 && (
+                <div className="space-y-4">
+                  {filterBuyMore && (
+                    <h3 className="text-base font-extrabold text-amber-700 flex items-center gap-2 font-['Outfit']">
+                      <Clock className="w-4 h-4" />
+                      <span>{storeConfig.preOrderSectionTitle || 'Pre-Order Products'} ({filteredPreOrderCatalog.length})</span>
+                    </h3>
+                  )}
+                  <ShowcaseRowMatrix
+                    items={filteredPreOrderCatalog}
+                    keyExtractor={(item) => item.id}
+                    renderItem={(item) => <PreOrderCard item={item} />}
+                    maxRows={storeConfig.sectionLayouts?.preOrder?.maxRows ?? 3}
+                    layoutConfig={storeConfig.sectionLayouts?.preOrder || INITIAL_STORE_CONFIG.sectionLayouts?.preOrder}
+                  />
+                </div>
+              )}
+
+              {filterBuyMore && filteredBuyMoreCatalog.length > 0 && (
+                <div className="space-y-4">
+                  {filterPreOrder && (
+                    <h3 className="text-base font-extrabold text-indigo-700 flex items-center gap-2 font-['Outfit']">
+                      <Gift className="w-4 h-4" />
+                      <span>{storeConfig.buyMoreSectionTitle || 'Buy 1 Get 1 Offers'} ({filteredBuyMoreCatalog.length})</span>
+                    </h3>
+                  )}
+                  <ShowcaseRowMatrix
+                    items={filteredBuyMoreCatalog}
+                    keyExtractor={(offer) => offer.id}
+                    renderItem={(offer) => <BuyMoreCard offer={offer} />}
+                    maxRows={storeConfig.sectionLayouts?.buyMore?.maxRows ?? 2}
+                    layoutConfig={storeConfig.sectionLayouts?.buyMore || INITIAL_STORE_CONFIG.sectionLayouts?.buyMore}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        ) : sortedProducts.length === 0 ? (
           <div className="py-16 text-center space-y-4 bg-white rounded-3xl border border-[#E2E8F0] p-8">
             <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
               <ShoppingBag className="w-8 h-8" />
@@ -612,10 +940,15 @@ const MainAppContent: React.FC = () => {
               Try searching with another keyword or select a different category filter.
             </p>
             <button
+              type="button"
               onClick={() => {
                 setActiveCategory('All');
                 setSelectedSubcategory('All');
                 setSearchQuery('');
+                setFilterFreeDelivery(false);
+                setFilterFeatured(false);
+                setFilterPreOrder(false);
+                setFilterBuyMore(false);
               }}
               className="px-5 py-2.5 rounded-full bg-[#1E293B] text-white font-bold text-xs hover:bg-slate-800 transition-colors cursor-pointer"
             >
@@ -623,71 +956,164 @@ const MainAppContent: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2.5 sm:gap-3.5 lg:gap-4">
-              {paginatedProducts.map(product => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+          <ShowcaseRowMatrix
+            items={sortedProducts}
+            keyExtractor={(product) => product.id}
+            renderItem={(product) => <ProductCard product={product} />}
+            maxRows={storeConfig.sectionLayouts?.ourProducts?.maxRows ?? 4}
+            layoutConfig={storeConfig.sectionLayouts?.ourProducts || INITIAL_STORE_CONFIG.sectionLayouts?.ourProducts}
+          />
+        )}
 
-            {/* Daraz-style Premium Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 pt-6">
-                <button
-                  onClick={() => {
-                    setCurrentPage(prev => Math.max(1, prev - 1));
-                    const el = document.getElementById('products');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1.5 rounded-xl bg-white border border-[#E2E8F0] hover:border-[#38BDF8] disabled:opacity-50 disabled:hover:border-[#E2E8F0] text-xs font-bold text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                  <button
-                    key={page}
-                    onClick={() => {
-                      setCurrentPage(page);
-                      const el = document.getElementById('products');
-                      el?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className={`w-9 h-9 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                      currentPage === page
-                        ? 'bg-gradient-to-tr from-[#38BDF8] to-[#6366F1] text-white shadow-md'
-                        : 'bg-white border border-[#E2E8F0] text-slate-700 hover:border-[#38BDF8]'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => {
-                    setCurrentPage(prev => Math.min(totalPages, prev + 1));
-                    const el = document.getElementById('products');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 rounded-xl bg-white border border-[#E2E8F0] hover:border-[#38BDF8] disabled:opacity-50 disabled:hover:border-[#E2E8F0] text-xs font-bold text-slate-700 transition-colors cursor-pointer disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-            )}
+        {/* Banner #2: Pre-Order / Upcoming Products Banner (Admin Controlled, Slightly Narrower) */}
+        {!isTypeFilterActive && showPreOrderSection && (
+          <div className="pt-2">
+            <SectionPromoBanner
+              banner={storeConfig.upcomingBanner || INITIAL_STORE_CONFIG.upcomingBanner}
+              defaultAnchor="#upcoming-products"
+            />
           </div>
         )}
 
-      </main>
+        {/* Section 2: Upcoming Products / Pre-Order (Admin Checkmark Controlled) */}
+        {!isTypeFilterActive && showPreOrderSection && (
+          <section id="upcoming-products" className="space-y-5 bg-white/85 backdrop-blur-sm rounded-3xl p-4 sm:p-6 border border-emerald-200/70 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-amber-700 text-xs font-bold uppercase tracking-wider mb-1">
+                  <Clock className="w-4 h-4" />
+                  <span>Upcoming &amp; Pre-Order</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-['Outfit'] tracking-tight">
+                  {storeConfig.preOrderSectionTitle || 'Upcoming Products'}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  {storeConfig.preOrderSectionSubtitle || 'Reserve upcoming drops before general release'}
+                </p>
+              </div>
 
-      {/* Floating Modals, Drawers & Popups */}
+              <button
+                type="button"
+                onClick={() => setActiveSeeMoreSection('pre_order')}
+                className="self-start sm:self-auto px-4 py-2 rounded-xl bg-slate-900 hover:bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+              >
+                <span>See More</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <ShowcaseRowMatrix
+              items={visiblePreOrderProducts}
+              keyExtractor={(item) => item.id}
+              renderItem={(item) => <PreOrderCard item={item} />}
+              maxRows={storeConfig.sectionLayouts?.preOrder?.maxRows ?? 3}
+              layoutConfig={storeConfig.sectionLayouts?.preOrder || INITIAL_STORE_CONFIG.sectionLayouts?.preOrder}
+            />
+          </section>
+        )}
+
+        {/* Banner #3: Buy One Get More Banner (Admin Controlled, Slightly Narrower) */}
+        {!isTypeFilterActive && showBuyMoreSection && (
+          <div className="pt-2">
+            <SectionPromoBanner
+              banner={storeConfig.buyMoreBanner || INITIAL_STORE_CONFIG.buyMoreBanner}
+              defaultAnchor="#buy-more-offers"
+            />
+          </div>
+        )}
+
+        {/* Section 3: Buy One Get More / Buy More Get More (Admin Checkmark Controlled) */}
+        {!isTypeFilterActive && showBuyMoreSection && (
+          <section id="buy-more-offers" className="space-y-5 bg-white/90 backdrop-blur-sm rounded-3xl p-4 sm:p-6 border border-emerald-200/80 shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
+                  <Gift className="w-4 h-4" />
+                  <span>Combo &amp; Bonus Deals</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-['Outfit'] tracking-tight">
+                  {storeConfig.buyMoreSectionTitle || 'Buy One Get More'}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  {storeConfig.buyMoreSectionSubtitle || 'Buy qualifying items and get extra products free'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveSeeMoreSection('buy_more')}
+                className="self-start sm:self-auto px-4 py-2 rounded-xl bg-slate-900 hover:bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+              >
+                <span>See More</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Active Offer Vouchers Bar */}
+            {visibleBuyMoreVouchers.length > 0 && (
+              <div className="flex items-stretch gap-3 overflow-x-auto scrollbar-hide pb-1">
+                {visibleBuyMoreVouchers.map(v => (
+                  <div
+                    key={v.id}
+                    className="min-w-[250px] sm:min-w-[280px] p-3 rounded-2xl bg-slate-900 text-white flex items-center justify-between gap-3 border border-slate-800 shrink-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-amber-300 text-xs font-bold">
+                        <Ticket className="w-3.5 h-3.5 shrink-0" />
+                        <span className="font-mono">{v.code}</span>
+                      </div>
+                      <p className="text-xs font-bold truncate mt-0.5">{v.title}</p>
+                      <p className="text-[11px] text-slate-300 truncate">{v.freeProductNote}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(v.code);
+                        collectVoucher(v.code);
+                        setCopiedOfferVoucher(v.code);
+                        setTimeout(() => setCopiedOfferVoucher(null), 1800);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-white text-slate-900 text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap"
+                    >
+                      {copiedOfferVoucher === v.code ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedOfferVoucher === v.code ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <ShowcaseRowMatrix
+              items={visibleBuyMoreOffers}
+              keyExtractor={(offer) => offer.id}
+              renderItem={(offer) => <BuyMoreCard offer={offer} />}
+              maxRows={storeConfig.sectionLayouts?.buyMore?.maxRows ?? 2}
+              layoutConfig={storeConfig.sectionLayouts?.buyMore || INITIAL_STORE_CONFIG.sectionLayouts?.buyMore}
+            />
+          </section>
+        )}
+
+      </main>
+        </>
+      )}
+
+        {/* Footer */}
+        <div className="relative z-10">
+          <Footer />
+        </div>
+        </div>
+      </PullToRefresh>
+
+      {/* Scroll Progress Bar & All Floating Modals/Drawers Outside PullToRefresh Transform Layer */}
+      <ScrollProgressBar />
       <CartDrawer />
       <CheckoutModal />
+      {selectedPreOrderProduct && <PreOrderModal />}
+      {selectedBuyMoreOffer && <BuyMoreOfferModal />}
       <OrderPolicyModal />
       <PolicyModal />
       <WhatsAppWidget />
-      
+
       {/* Variant Selection Modal */}
       {isVariantModalOpen && variantModalProduct && (
         <ProductModal />
@@ -722,11 +1148,11 @@ const MainAppContent: React.FC = () => {
 
       {/* Static Page View Modal */}
       {selectedStaticPage && (
-        <div 
+        <div
           className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 lg:p-8 animate-fade-in"
           onClick={() => setSelectedStaticPage(null)}
         >
-          <div 
+          <div
             className="bg-white rounded-[32px] max-w-4xl w-full h-[85vh] max-h-[85vh] flex flex-col shadow-2xl border border-slate-200/50 relative overflow-hidden animate-scale-up"
             onClick={(e) => e.stopPropagation()}
           >
@@ -740,7 +1166,7 @@ const MainAppContent: React.FC = () => {
                   {selectedStaticPage.title}
                 </h2>
               </div>
-              
+
               <button
                 onClick={() => setSelectedStaticPage(null)}
                 className="p-3 rounded-full bg-slate-100 text-slate-800 hover:bg-slate-900 hover:text-white transition-all cursor-pointer shadow-sm active:scale-95 border border-slate-200/60"
@@ -752,7 +1178,7 @@ const MainAppContent: React.FC = () => {
 
             {/* Premium Scrollable Content */}
             <div className="p-6 sm:p-8 overflow-y-auto flex-1 bg-white">
-              <div 
+              <div
                 className="text-slate-800 leading-relaxed font-normal text-sm sm:text-base prose prose-slate max-w-none break-words whitespace-pre-line"
                 dangerouslySetInnerHTML={{ __html: selectedStaticPage.content.replace(/\n/g, '<br />') }}
               />
@@ -774,17 +1200,13 @@ const MainAppContent: React.FC = () => {
       {/* Admin Login Modal (Triggered by Stealth Dot in Footer) */}
       {isAdminModalOpen && <AdminLoginModal />}
 
-      {/* Footer */}
-      <Footer />
-
       {/* Standalone Full-Screen Modal Overlay for Product Details or Variant Modal */}
       {(selectedProduct || (isVariantModalOpen && variantModalProduct)) && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-[#F8FAFC]">
           <ProductModal />
         </div>
       )}
-      </div>
-    </PullToRefresh>
+    </>
   );
 };
 

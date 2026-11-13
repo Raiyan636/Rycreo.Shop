@@ -1,4 +1,4 @@
-import { Product, HeroSlide, StoreConfig, Category, ProductAttribute, Coupon, Review, QuickCategoryShortcut, StoreGuarantee, StaticPage } from '../types/store';
+import { Product, HeroSlide, StoreConfig, Category, ProductAttribute, Coupon, Review, QuickCategoryShortcut, StoreGuarantee, StaticPage, PreOrderProduct, BuyMoreOffer, BuyMoreVoucher } from '../types/store';
 
 export const INITIAL_STATIC_PAGES: StaticPage[] = [
   {
@@ -183,6 +183,67 @@ export const INITIAL_STORE_CONFIG: StoreConfig = {
   emailjsTemplateId: "Template_0vqd26h",
   emailjsPublicKey: "Qi5oXZpEMJkG2utos",
   emailjsReceiverEmail: "rycreoshop@gmail.com",
+  isPreOrderSectionVisible: true,
+  isBuyMoreSectionVisible: true,
+  ourProductsSectionTitle: "Our Products",
+  preOrderSectionTitle: "Upcoming Products",
+  preOrderSectionSubtitle: "Reserve upcoming global drops before they arrive in stock.",
+  buyMoreSectionTitle: "Buy One Get More",
+  buyMoreSectionSubtitle: "Exclusive combo bundles, free bonus gifts & offer vouchers.",
+  upcomingBanner: {
+    active: true,
+    badge: "UPCOMING DROPS • PRE-ORDER",
+    title: "NEXT-GEN ARRIVALS & EXCLUSIVE PRE-ORDER",
+    subtitle: "Reserve upcoming international drops with priority dispatch before public release.",
+    ctaText: "RESERVE UPCOMING DROPS",
+    ctaLink: "#upcoming-products",
+    categoryLink: "",
+    mediaType: "image",
+    mediaUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=1600",
+    overlayOpacity: 0.35,
+    showCta: true,
+    hideTextOverlay: false,
+  },
+  buyMoreBanner: {
+    active: true,
+    badge: "BUY ONE GET MORE • COMBO OFFERS",
+    title: "DOUBLE THE VALUE WITH BONUS GIFTS",
+    subtitle: "Grab Buy 1 Get 1 & Multi-Buy bundles with complimentary surprise accessories included.",
+    ctaText: "EXPLORE COMBO OFFERS",
+    ctaLink: "#buy-more-offers",
+    categoryLink: "",
+    mediaType: "image",
+    mediaUrl: "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&q=80&w=1600",
+    overlayOpacity: 0.38,
+    showCta: true,
+    hideTextOverlay: false,
+  },
+  sectionLayouts: {
+    ourProducts: {
+      maxRows: 4,
+      mobileMaxRows: 4,
+      desktopColumns: 4,
+      mobileColumns: 2,
+      maxItemsPerRow: 20,
+      autoSingleRowThreshold: 3,
+    },
+    preOrder: {
+      maxRows: 3,
+      mobileMaxRows: 4,
+      desktopColumns: 4,
+      mobileColumns: 2,
+      maxItemsPerRow: 20,
+      autoSingleRowThreshold: 3,
+    },
+    buyMore: {
+      maxRows: 2,
+      mobileMaxRows: 2,
+      desktopColumns: 4,
+      mobileColumns: 2,
+      maxItemsPerRow: 20,
+      autoSingleRowThreshold: 4,
+    },
+  },
   paymentGateways: [
     {
       id: "cod",
@@ -1250,6 +1311,163 @@ export const INITIAL_PRODUCTS: Product[] = [
     reviewCount: 12,
     sizes: [],
     createdAt: "2026-10-03T10:00:00.000Z"
+  },
+  {
+    id: "prod-20",
+    title: "Premium Combed Cotton Socks 5-Pair Gift Box (প্রিমিয়াম মোজা সেট)",
+    slug: "premium-combed-cotton-socks-5-pair-gift-box",
+    category: "Accessories",
+    subcategory: "Caps",
+    brand: "Rycreo Essentials",
+    sku: "RYC-SCK-020",
+    price: 750,
+    salePrice: 540,
+    discountBadge: "28% OFF",
+    images: [
+      "/src/assets/images/upcoming_cotton_socks_1794573189023.jpg",
+      "/src/assets/images/ankle_sport_socks_pack_1794573994327.jpg"
+    ],
+    colors: [
+      { name: "Assorted 5-Pair Crew", hex: "#1E293B", image: "/src/assets/images/upcoming_cotton_socks_1794573189023.jpg" },
+      { name: "Sport Ankle 5-Pair", hex: "#334155", image: "/src/assets/images/ankle_sport_socks_pack_1794573994327.jpg" }
+    ],
+    variations: [
+      { id: "var-20-1", combination: { "Color": "Assorted 5-Pair Crew" }, price: 750, salePrice: 540, stock: 25, inStock: true, sku: "RYC-SCK-CRW" },
+      { id: "var-20-2", combination: { "Color": "Sport Ankle 5-Pair" }, price: 750, salePrice: 540, stock: 25, inStock: true, sku: "RYC-SCK-ANK" }
+    ],
+    description: "প্রিমিয়াম কম্বেড কটন ৫ জোড়া মোজা সেট। নরম, ঘাম শোষক এবং সারা দিন আরামদায়ক ব্যবহারের জন্য তৈরি।",
+    stock: 50,
+    trackStock: true,
+    rating: 4.9,
+    reviewCount: 24,
+    soldCount: 19,
+    sizes: [{ size: "Free Size (EU 39-44)", stock: 50 }],
+    createdAt: "2026-11-10T10:00:00.000Z"
+  },
+  {
+    id: "prod-21",
+    title: "Kids Sky Baseball Cap & 3-Pair Cotton Socks Set (বাচ্চাদের টুপি ও মোজা)",
+    slug: "kids-sky-baseball-cap-3-pair-cotton-socks-set",
+    category: "Clothing",
+    subcategory: "Casual Shirts",
+    brand: "Rycreo Kids",
+    sku: "RYC-KID-021",
+    price: 950,
+    salePrice: 690,
+    discountBadge: "27% OFF",
+    images: [
+      "/src/assets/images/kids_cap_socks_set_1794573993354.jpg",
+      "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg"
+    ],
+    colors: [
+      { name: "Sky Blue Cap Set", hex: "#7DD3FC", image: "/src/assets/images/kids_cap_socks_set_1794573993354.jpg" },
+      { name: "Warm Cream Knit Set", hex: "#E7E0D3", image: "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg" }
+    ],
+    variations: [
+      { id: "var-21-1", combination: { "Color": "Sky Blue Cap Set" }, price: 950, salePrice: 690, stock: 18, inStock: true, sku: "RYC-KID-CAP1" },
+      { id: "var-21-2", combination: { "Color": "Warm Cream Knit Set" }, price: 950, salePrice: 690, stock: 18, inStock: true, sku: "RYC-KID-CAP2" }
+    ],
+    description: "বাচ্চাদের জন্য সফট কটন বেসবল ক্যাপ ও ৩ জোড়া আরামদায়ক মোজার কম্বো সেট। রোদ থেকে সুরক্ষা ও নরম ফিট।",
+    stock: 36,
+    trackStock: true,
+    rating: 4.9,
+    reviewCount: 17,
+    soldCount: 14,
+    sizes: [{ size: "2-5 Years", stock: 18 }, { size: "6-9 Years", stock: 18 }],
+    createdAt: "2026-11-11T10:00:00.000Z"
+  },
+  {
+    id: "prod-22",
+    title: "Pro Goose-Feather Badminton Shuttlecock Tube — 12 Corks (ব্যাডমিন্টনের কর্ক)",
+    slug: "pro-goose-feather-badminton-shuttlecock-tube-12-corks",
+    category: "Accessories",
+    subcategory: "Caps",
+    brand: "Rycreo Sports",
+    sku: "RYC-SPT-022",
+    price: 1250,
+    salePrice: 890,
+    discountBadge: "29% OFF",
+    images: [
+      "/src/assets/images/badminton_feather_corks_1794573993654.jpg"
+    ],
+    colors: [
+      { name: "Tournament White (Speed 77)", hex: "#F8FAFC", image: "/src/assets/images/badminton_feather_corks_1794573993654.jpg" }
+    ],
+    variations: [
+      { id: "var-22-1", combination: { "Color": "Tournament White (Speed 77)" }, price: 1250, salePrice: 890, stock: 30, inStock: true, sku: "RYC-SPT-CRK12" }
+    ],
+    description: "প্রফেশনাল টুর্নামেন্ট গ্রেড হাঁসের পালকের ১২ পিস ব্যাডমিন্টন কর্ক টিউব। নিখুঁত ফ্লাইট ব্যালেন্স ও টেকসই কর্ক হেড।",
+    stock: 30,
+    trackStock: true,
+    rating: 4.8,
+    reviewCount: 29,
+    soldCount: 22,
+    sizes: [{ size: "12-Corks Tube", stock: 30 }],
+    createdAt: "2026-11-12T10:00:00.000Z"
+  },
+  {
+    id: "prod-23",
+    title: "Borosilicate Airtight Bamboo-Lid Glass Jar 3-Piece Set (কাচের জার)",
+    slug: "borosilicate-airtight-bamboo-lid-glass-jar-3-piece-set",
+    category: "Home & Living",
+    subcategory: "Desk Organization",
+    brand: "Rycreo Home",
+    sku: "RYC-HOM-023",
+    price: 1850,
+    salePrice: 1390,
+    discountBadge: "25% OFF",
+    images: [
+      "/src/assets/images/upcoming_glass_jars_1794573190026.jpg",
+      "/src/assets/images/glass_spice_jars_set_1794573996251.jpg"
+    ],
+    colors: [
+      { name: "Round 3-Jar Set", hex: "#D6B88D", image: "/src/assets/images/upcoming_glass_jars_1794573190026.jpg" },
+      { name: "Square 4-Spice Jar Set", hex: "#B08968", image: "/src/assets/images/glass_spice_jars_set_1794573996251.jpg" }
+    ],
+    variations: [
+      { id: "var-23-1", combination: { "Color": "Round 3-Jar Set" }, price: 1850, salePrice: 1390, stock: 20, inStock: true, sku: "RYC-HOM-JAR3" },
+      { id: "var-23-2", combination: { "Color": "Square 4-Spice Jar Set" }, price: 1850, salePrice: 1390, stock: 20, inStock: true, sku: "RYC-HOM-JAR4" }
+    ],
+    description: "প্রিমিয়াম বোরোসিলিকেট এয়ারটাইট কাচের জার সেট। প্রাকৃতিক ব্যাম্বু ঢাকনা ও সিলিকন সিল—মসলা, মধু, চা-পাতা ও ড্রাই ফুডের জন্য সেরা।",
+    stock: 40,
+    trackStock: true,
+    rating: 4.9,
+    reviewCount: 21,
+    soldCount: 16,
+    sizes: [{ size: "Standard Set", stock: 40 }],
+    createdAt: "2026-11-12T12:00:00.000Z"
+  },
+  {
+    id: "prod-24",
+    title: "Toddler Knit Pom Beanie & Baby Socks Gift Pack (বাচ্চাদের টুপি ও মোজা)",
+    slug: "toddler-knit-pom-beanie-baby-socks-gift-pack",
+    category: "Clothing",
+    subcategory: "Sweaters & Hoodies",
+    brand: "Rycreo Kids",
+    sku: "RYC-KID-024",
+    price: 890,
+    salePrice: 650,
+    discountBadge: "27% OFF",
+    images: [
+      "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg",
+      "/src/assets/images/upcoming_kids_combo_set_1794573190201.jpg"
+    ],
+    colors: [
+      { name: "Oatmeal Cream", hex: "#E6DCCA", image: "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg" },
+      { name: "Sky Mint Combo", hex: "#BAE6FD", image: "/src/assets/images/upcoming_kids_combo_set_1794573190201.jpg" }
+    ],
+    variations: [
+      { id: "var-24-1", combination: { "Color": "Oatmeal Cream" }, price: 890, salePrice: 650, stock: 22, inStock: true, sku: "RYC-KID-BN1" },
+      { id: "var-24-2", combination: { "Color": "Sky Mint Combo" }, price: 890, salePrice: 650, stock: 16, inStock: true, sku: "RYC-KID-BN2" }
+    ],
+    description: "নবজাতক ও ছোট বাচ্চাদের জন্য আরামদায়ক কেবল-নিট টুপি এবং ২ জোড়া ম্যাচিং কটন মোজার গিফট প্যাক।",
+    stock: 38,
+    trackStock: true,
+    rating: 4.8,
+    reviewCount: 15,
+    soldCount: 11,
+    sizes: [{ size: "0-2 Years", stock: 20 }, { size: "2-4 Years", stock: 18 }],
+    createdAt: "2026-11-13T08:00:00.000Z"
   }
 ];
 
@@ -1451,4 +1669,512 @@ export const INITIAL_QUICK_CATEGORIES: QuickCategoryShortcut[] = [
     order: 7
   }
 ];
+
+export const INITIAL_PREORDER_PRODUCTS: PreOrderProduct[] = [
+  {
+    id: "pre-prod-1",
+    title: "Rycreo Apex Titanium GPS Smartwatch (2026 Edition)",
+    category: "Watches",
+    price: 6500,
+    salePrice: 4990,
+    advanceAmount: 500,
+    images: ["/src/assets/images/preorder_smartwatch_pro_1794543635576.jpg"],
+    description: "AMOLED always-on sapphire display, 14-day battery life, dual-band GPS, and titanium unibody frame. Reserve your unit before the first Dhaka shipment arrives.",
+    colors: ["Matte Black", "Titanium Silver"],
+    sizes: ["44mm", "46mm"],
+    weWillGetText: "20 দিনের মধ্যে",
+    youWillGetText: "25 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 1,
+    createdAt: "2026-11-01T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-2",
+    title: "Studio Pro Hybrid ANC Wireless Headphones",
+    category: "Electronics",
+    price: 5400,
+    salePrice: 4250,
+    advanceAmount: 400,
+    images: ["/src/assets/images/preorder_anc_headphones_1794543635863.jpg"],
+    description: "48dB active noise cancellation, spatial audio drivers, 60-hour USB-C playback, and memory-foam ear cushions.",
+    colors: ["Brushed Silver", "Obsidian Gray"],
+    sizes: ["Standard"],
+    weWillGetText: "15 দিনের মধ্যে",
+    youWillGetText: "",
+    isVisible: true,
+    position: 2,
+    createdAt: "2026-11-02T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-3",
+    title: "Nordic Suede Low-Top Court Sneakers",
+    category: "Clothing",
+    price: 3800,
+    salePrice: 2950,
+    advanceAmount: 300,
+    images: ["/src/assets/images/preorder_sneakers_minimal_1794543635858.jpg"],
+    description: "Hand-stitched suede and full-grain leather upper with cushioned EVA outsole for all-day urban comfort.",
+    colors: ["Chalk Slate"],
+    sizes: ["40", "41", "42", "43", "44"],
+    weWillGetText: "",
+    youWillGetText: "",
+    isVisible: true,
+    position: 3,
+    createdAt: "2026-11-03T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-4",
+    title: "Atelier Luxe Pique Dual-Tone Travel Polo Set",
+    category: "Polo T-Shirts",
+    price: 2600,
+    salePrice: 1990,
+    advanceAmount: 200,
+    images: ["/src/assets/images/buymore_polo_combo_1794543636471.jpg"],
+    description: "240 GSM combed organic cotton pique with tailored collar and breathable summer weave.",
+    colors: ["Navy & Ivory"],
+    sizes: ["M", "L", "XL", "XXL"],
+    weWillGetText: "18 দিনের মধ্যে",
+    youWillGetText: "22 দিনের মধ্যে হাতে পাবেন",
+    isVisible: true,
+    position: 4,
+    createdAt: "2026-11-04T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-5",
+    title: "Heritage Full-Grain Leather Belt & Wallet Box",
+    category: "Accessories",
+    price: 3200,
+    salePrice: 2450,
+    advanceAmount: 250,
+    images: ["/src/assets/images/buymore_leather_combo_1794543635554.jpg"],
+    description: "Vegetable-tanned genuine leather bifold wallet paired with a solid brushed-steel buckle belt in gift packaging.",
+    colors: ["Espresso Brown"],
+    sizes: ["Standard"],
+    weWillGetText: "20 দিনের মধ্যে",
+    youWillGetText: "",
+    isVisible: true,
+    position: 5,
+    createdAt: "2026-11-05T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-6",
+    title: "Premium Breathable Combed Cotton Socks Set (5-Pair Box)",
+    category: "Accessories",
+    price: 750,
+    salePrice: 550,
+    advanceAmount: 100,
+    images: ["/src/assets/images/upcoming_cotton_socks_1794573189023.jpg"],
+    description: "প্রিমিয়াম কম্বেড কটন ৫ জোড়া মোজা সেট। নরম, ঘাম শোষক এবং সারা দিন আরামদায়ক ব্যবহারের জন্য উপযোগী। অফিস, স্পোর্টস ও দৈনন্দিন ব্যবহারের সেরা কম্বো বক্স।",
+    colors: ["Assorted 5-Pair Box", "Navy & Charcoal"],
+    sizes: ["Free Size (EU 39-44)"],
+    weWillGetText: "10 দিনের মধ্যে",
+    youWillGetText: "14 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 6,
+    createdAt: "2026-11-06T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-7",
+    title: "Kids Ultra-Soft Cotton 3-Piece Combo Set (বাচ্চাদের কম্বো সেট)",
+    category: "Clothing",
+    price: 1450,
+    salePrice: 1090,
+    advanceAmount: 200,
+    images: ["/src/assets/images/upcoming_kids_combo_set_1794573190201.jpg"],
+    description: "বাচ্চাদের জন্য ১০০% নরম কটন ৩-পিস কম্বো সেট (টি-শার্ট, কম্ফোর্ট শর্টস এবং ম্যাচিং মোজা)। শিশুর ত্বকের জন্য সম্পূর্ণ নিরাপদ ও আরামদায়ক গ্রীষ্মকালীন পোশাক সেট।",
+    colors: ["Sky Blue", "Mint Green", "Warm Cream"],
+    sizes: ["1-2 Years", "2-3 Years", "4-5 Years", "6-7 Years"],
+    weWillGetText: "12 দিনের মধ্যে",
+    youWillGetText: "16 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 7,
+    createdAt: "2026-11-07T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-8",
+    title: "Borosilicate Airtight Bamboo-Lid Glass Jar Set (কাচের জার ৩-পিস)",
+    category: "Home & Living",
+    price: 1850,
+    salePrice: 1390,
+    advanceAmount: 200,
+    images: ["/src/assets/images/upcoming_glass_jars_1794573190026.jpg"],
+    description: "হাই-গ্রেড বোরোসিলিকেট এয়ারটাইট কাচের জার ৩-পিস সেট। ন্যাচারাল ব্যাম্বু ঢাকনা ও সিলিকন রিং সমৃদ্ধ—ড্রাই ফুড, মসলা, চা-পাতা ও কফি দীর্ঘদিন সতেজ রাখার জন্য আদর্শ।",
+    colors: ["Crystal Clear & Bamboo"],
+    sizes: ["3-Jar Set (500ml + 900ml + 1400ml)"],
+    weWillGetText: "14 দিনের মধ্যে",
+    youWillGetText: "18 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 8,
+    createdAt: "2026-11-08T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-9",
+    title: "Tournament Speed-77 Feather Badminton Corks (ব্যাডমিন্টনের কর্ক ১২ পিস)",
+    category: "Accessories",
+    price: 1450,
+    salePrice: 1050,
+    advanceAmount: 150,
+    images: ["/src/assets/images/badminton_feather_corks_1794573993654.jpg"],
+    description: "টুর্নামেন্ট কোয়ালিটি প্রিমিয়াম গুজ ফেদার ব্যাডমিন্টন শাটলকক (১২ পিস টিউব)। ইনডোর ও আউটডোর খেলার জন্য দারুণ স্ট্যাবিলিটি ও ডুরেবিলিটি।",
+    colors: ["Classic Tournament White"],
+    sizes: ["12-Shuttlecock Tube"],
+    weWillGetText: "8 দিনের মধ্যে",
+    youWillGetText: "11 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 9,
+    createdAt: "2026-11-09T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-10",
+    title: "Kids Breathable Sun Cap & Star Socks 4-Piece Pack (বাচ্চাদের টুপি ও মোজা)",
+    category: "Clothing",
+    price: 980,
+    salePrice: 720,
+    advanceAmount: 120,
+    images: ["/src/assets/images/kids_cap_socks_set_1794573993354.jpg"],
+    description: "স্কাই-ব্লু কটন বেসবল ক্যাপ এবং ৩ জোড়া ম্যাচিং স্টার প্যাটার্ন মোজা—বাচ্চাদের আউটডোর ও স্কুলের জন্য আরামদায়ক কম্বো।",
+    colors: ["Sky Blue & Cream"],
+    sizes: ["2-5 Years", "6-9 Years"],
+    weWillGetText: "10 দিনের মধ্যে",
+    youWillGetText: "14 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 10,
+    createdAt: "2026-11-10T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-11",
+    title: "4-Piece Square Borosilicate Glass Spice & Honey Jars (কাচের স্পাইস জার)",
+    category: "Home & Living",
+    price: 1550,
+    salePrice: 1190,
+    advanceAmount: 150,
+    images: ["/src/assets/images/glass_spice_jars_set_1794573996251.jpg"],
+    description: "মসলা, মধু, পিংক সল্ট ও গোলমরিচ সংরক্ষণের জন্য ৪ পিস স্কয়ার এয়ারটাইট কাচের জার ও ব্যাম্বু ঢাকনা সেট।",
+    colors: ["Clear Glass & Natural Bamboo"],
+    sizes: ["4-Jar Pantry Pack"],
+    weWillGetText: "12 দিনের মধ্যে",
+    youWillGetText: "16 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 11,
+    createdAt: "2026-11-11T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-12",
+    title: "Breathable Mesh Cushion Ankle Sport Socks 5-Pair Pack (স্পোর্টস মোজা)",
+    category: "Accessories",
+    price: 690,
+    salePrice: 490,
+    advanceAmount: 100,
+    images: ["/src/assets/images/ankle_sport_socks_pack_1794573994327.jpg"],
+    description: "রানিং, ব্যাডমিন্টন ও জিমের জন্য এন্টি-ব্লিস্টার হিল ট্যাব ও ব্রেদেবল মেশ কটন অ্যাংকেল মোজা (৫ জোড়া)।",
+    colors: ["5-Color Sport Pack"],
+    sizes: ["Free Size (EU 39-44)"],
+    weWillGetText: "9 দিনের মধ্যে",
+    youWillGetText: "12 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 12,
+    createdAt: "2026-11-12T10:00:00.000Z"
+  },
+  {
+    id: "pre-prod-13",
+    title: "Baby Cable-Knit Pom Beanie & Anti-Slip Socks Combo (বাচ্চাদের শীতের টুপি ও মোজা)",
+    category: "Clothing",
+    price: 920,
+    salePrice: 680,
+    advanceAmount: 120,
+    images: ["/src/assets/images/kids_beanie_socks_set_1794573994095.jpg"],
+    description: "শিশুর ত্বকের জন্য অতিরিক্ত নরম কেবল-নিট পমপম টুপি ও ২ জোড়া এন্টি-স্লিপ বেবি মোজা সেট।",
+    colors: ["Warm Oatmeal Beige"],
+    sizes: ["0-2 Years", "2-4 Years"],
+    weWillGetText: "11 দিনের মধ্যে",
+    youWillGetText: "15 দিনের মধ্যে ডেলিভারি",
+    isVisible: true,
+    position: 13,
+    createdAt: "2026-11-13T10:00:00.000Z"
+  }
+];
+
+export const INITIAL_BUYMORE_OFFERS: BuyMoreOffer[] = [
+  {
+    id: "bogo-1",
+    title: "Buy 1 Signature Navy Polo, Get 1 Ivory Polo Free",
+    badgeText: "Buy 1 Get 1 Free",
+    offerType: "bogo",
+    mainProductTitle: "Signature Navy Pique Polo Shirt",
+    mainProductImage: "/src/assets/images/buymore_polo_combo_1794543636471.jpg",
+    images: ["/src/assets/images/buymore_polo_combo_1794543636471.jpg"],
+    buyQuantity: 1,
+    price: 1350,
+    regularValue: 2700,
+    freeItems: [
+      {
+        id: "free-1",
+        title: "Classic Ivory Pique Polo Shirt",
+        image: "/src/assets/images/buymore_polo_combo_1794543636471.jpg",
+        quantity: 1,
+        value: 1350
+      }
+    ],
+    description: "Order 1 Signature Navy Pique Polo Shirt and receive 1 Classic Ivory Pique Polo Shirt completely free in the same parcel.",
+    voucherCode: "BOGO2026",
+    isVisible: true,
+    position: 1,
+    createdAt: "2026-11-01T10:00:00.000Z"
+  },
+  {
+    id: "bogo-2",
+    title: "Buy Leather Belt, Get Genuine Leather Wallet Free",
+    badgeText: "Buy 1 Get Gift",
+    offerType: "free_gift",
+    mainProductTitle: "Espresso Full-Grain Leather Belt",
+    mainProductImage: "/src/assets/images/buymore_leather_combo_1794543635554.jpg",
+    images: ["/src/assets/images/buymore_leather_combo_1794543635554.jpg"],
+    buyQuantity: 1,
+    price: 1490,
+    regularValue: 2690,
+    freeItems: [
+      {
+        id: "free-2",
+        title: "Matching Espresso Leather Bifold Wallet",
+        image: "/src/assets/images/buymore_leather_combo_1794543635554.jpg",
+        quantity: 1,
+        value: 1200
+      }
+    ],
+    description: "Purchase the handcrafted Espresso Full-Grain Leather Belt and get the matching Bifold Wallet free as a bonus gift.",
+    voucherCode: "GIFTPAIR",
+    isVisible: true,
+    position: 2,
+    createdAt: "2026-11-02T10:00:00.000Z"
+  },
+  {
+    id: "bogo-3",
+    title: "Buy Titanium Smartwatch, Get ANC Headphones at Bonus Deal",
+    badgeText: "Buy 1 Get More",
+    offerType: "buy_more_get_more",
+    mainProductTitle: "Rycreo Titanium Smartwatch",
+    mainProductImage: "/src/assets/images/preorder_smartwatch_pro_1794543635576.jpg",
+    images: ["/src/assets/images/preorder_smartwatch_pro_1794543635576.jpg"],
+    buyQuantity: 1,
+    price: 5490,
+    regularValue: 8900,
+    freeItems: [
+      {
+        id: "free-3",
+        title: "Extra Sport Silicone Strap + Magnetic Fast Dock",
+        image: "/src/assets/images/preorder_smartwatch_pro_1794543635576.jpg",
+        quantity: 2,
+        value: 1400
+      }
+    ],
+    description: "Includes the Titanium Smartwatch plus 2 complimentary accessories: Extra Fluoroelastomer Sport Strap and Magnetic Fast Charging Dock.",
+    voucherCode: "MOREGEAR",
+    isVisible: true,
+    position: 3,
+    createdAt: "2026-11-03T10:00:00.000Z"
+  },
+  {
+    id: "bogo-4",
+    title: "Buy Court Sneakers, Get 2 Pairs Cotton Crew Socks Free",
+    badgeText: "Buy 1 Get 2 Free",
+    offerType: "buy_more_get_more",
+    mainProductTitle: "Nordic Suede Court Sneakers",
+    mainProductImage: "/src/assets/images/preorder_sneakers_minimal_1794543635858.jpg",
+    images: ["/src/assets/images/preorder_sneakers_minimal_1794543635858.jpg"],
+    buyQuantity: 1,
+    price: 2950,
+    regularValue: 3550,
+    freeItems: [
+      {
+        id: "free-4",
+        title: "Combed Cotton Crew Socks (2 Pairs) + Shoe Care Brush",
+        image: "/src/assets/images/preorder_sneakers_minimal_1794543635858.jpg",
+        quantity: 2,
+        value: 600
+      }
+    ],
+    description: "Every pair of Nordic Suede Court Sneakers comes with 2 pairs of breathable cotton crew socks and a suede care brush.",
+    isVisible: true,
+    position: 4,
+    createdAt: "2026-11-04T10:00:00.000Z"
+  },
+  {
+    id: "bogo-5",
+    title: "Buy 5-Pair Cotton Socks Box, Get 2 Ankle Sport Socks Free (মোজা অফার)",
+    badgeText: "Buy 5 Get 2 Free",
+    offerType: "buy_more_get_more",
+    mainProductTitle: "Combed Cotton Crew Socks 5-Pair Box",
+    mainProductImage: "/src/assets/images/upcoming_cotton_socks_1794573189023.jpg",
+    images: [
+      "/src/assets/images/upcoming_cotton_socks_1794573189023.jpg",
+      "/src/assets/images/ankle_sport_socks_pack_1794573994327.jpg"
+    ],
+    buyQuantity: 1,
+    price: 650,
+    regularValue: 1050,
+    freeItems: [
+      {
+        id: "free-5",
+        title: "Breathable Sport Ankle Socks (2 Pairs)",
+        image: "/src/assets/images/ankle_sport_socks_pack_1794573994327.jpg",
+        quantity: 2,
+        value: 400
+      }
+    ],
+    description: "৫ জোড়া কম্বেড কটন ক্রু মোজা বক্স অর্ডার করলেই সাথে ২ জোড়া স্পোর্টস অ্যাংকেল মোজা একদম ফ্রি!",
+    voucherCode: "SOCKS2FREE",
+    isVisible: true,
+    position: 5,
+    createdAt: "2026-11-05T10:00:00.000Z"
+  },
+  {
+    id: "bogo-6",
+    title: "Buy Feather Badminton Cork Tube (12pcs), Get 3 Extra Corks Free",
+    badgeText: "Buy 12 Get 3 Free",
+    offerType: "buy_more_get_more",
+    mainProductTitle: "Pro Goose-Feather Badminton Shuttlecock Tube",
+    mainProductImage: "/src/assets/images/badminton_feather_corks_1794573993654.jpg",
+    images: ["/src/assets/images/badminton_feather_corks_1794573993654.jpg"],
+    buyQuantity: 1,
+    price: 990,
+    regularValue: 1450,
+    freeItems: [
+      {
+        id: "free-6",
+        title: "3x Extra Tournament Feather Shuttlecocks",
+        image: "/src/assets/images/badminton_feather_corks_1794573993654.jpg",
+        quantity: 3,
+        value: 460
+      }
+    ],
+    description: "১২ পিসের ব্যাডমিন্টন ফেদার কর্ক টিউব নিলে সাথে ৩ পিস এক্সট্রা টুর্নামেন্ট কর্ক একদম ফ্রি!",
+    isVisible: true,
+    position: 6,
+    createdAt: "2026-11-06T10:00:00.000Z"
+  },
+  {
+    id: "bogo-7",
+    title: "Buy 3-Piece Bamboo Glass Jar Set, Get 1 Square Spice Jar Free (কাচের জার)",
+    badgeText: "Buy 3 Get 1 Free",
+    offerType: "bogo",
+    mainProductTitle: "3-Piece Borosilicate Bamboo Glass Jar Set",
+    mainProductImage: "/src/assets/images/upcoming_glass_jars_1794573190026.jpg",
+    images: [
+      "/src/assets/images/upcoming_glass_jars_1794573190026.jpg",
+      "/src/assets/images/glass_spice_jars_set_1794573996251.jpg"
+    ],
+    buyQuantity: 1,
+    price: 1450,
+    regularValue: 1950,
+    freeItems: [
+      {
+        id: "free-7",
+        title: "1x Airtight Square Glass Spice & Honey Jar",
+        image: "/src/assets/images/glass_spice_jars_set_1794573996251.jpg",
+        quantity: 1,
+        value: 500
+      }
+    ],
+    description: "৩-পিস এয়ারটাইট কাচের জার সেটের সাথে ১টি স্কয়ার ব্যাম্বু-লিড স্পাইস জার একদম ফ্রি পাচ্ছেন।",
+    isVisible: true,
+    position: 7,
+    createdAt: "2026-11-07T10:00:00.000Z"
+  },
+  {
+    id: "bogo-8",
+    title: "Buy Kids Baseball Cap & Socks Set, Get Baby Knit Socks Free (বাচ্চাদের সেট)",
+    badgeText: "Buy 1 Get Gift",
+    offerType: "free_gift",
+    mainProductTitle: "Kids Sky Baseball Cap & 3-Pair Cotton Socks",
+    mainProductImage: "/src/assets/images/kids_cap_socks_set_1794573993354.jpg",
+    images: [
+      "/src/assets/images/kids_cap_socks_set_1794573993354.jpg",
+      "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg"
+    ],
+    buyQuantity: 1,
+    price: 750,
+    regularValue: 1120,
+    freeItems: [
+      {
+        id: "free-8",
+        title: "2 Pairs Cozy Baby Patterned Crew Socks",
+        image: "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg",
+        quantity: 2,
+        value: 370
+      }
+    ],
+    description: "বাচ্চাদের ক্যাপ ও ৩ জোড়া মোজার সেট কিনলেই সাথে ২ জোড়া বেবি কটন মোজা গিফট ফ্রি!",
+    isVisible: true,
+    position: 8,
+    createdAt: "2026-11-08T10:00:00.000Z"
+  },
+  {
+    id: "bogo-9",
+    title: "Buy Kids 3-Piece Cotton Combo, Get Knit Beanie & 2 Socks Free",
+    badgeText: "Combo + 2 Gifts",
+    offerType: "buy_more_get_more",
+    mainProductTitle: "Kids Ultra-Soft Cotton 3-Piece Combo Set",
+    mainProductImage: "/src/assets/images/upcoming_kids_combo_set_1794573190201.jpg",
+    images: [
+      "/src/assets/images/upcoming_kids_combo_set_1794573190201.jpg",
+      "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg"
+    ],
+    buyQuantity: 1,
+    price: 1190,
+    regularValue: 1790,
+    freeItems: [
+      {
+        id: "free-9",
+        title: "Toddler Cable-Knit Beanie Hat + 2 Baby Socks",
+        image: "/src/assets/images/kids_beanie_socks_set_1794573994095.jpg",
+        quantity: 1,
+        value: 600
+      }
+    ],
+    description: "বাচ্চাদের ৩-পিস কটন কম্বো সেটের সাথে সফট নিট টুপি ও ২ জোড়া বেবি মোজা ফ্রি বোনাস গিফট।",
+    isVisible: true,
+    position: 9,
+    createdAt: "2026-11-09T10:00:00.000Z"
+  }
+];
+
+export const INITIAL_BUYMORE_VOUCHERS: BuyMoreVoucher[] = [
+  {
+    id: "bmv-1",
+    code: "BOGO2026",
+    title: "Buy 1 Get 1 Free Polo Voucher",
+    description: "Buy any 1 signature polo deal and claim an extra polo shirt free.",
+    minBuyQty: 1,
+    freeQty: 1,
+    freeProductNote: "1x Classic Ivory Polo Free",
+    discountPercent: 0,
+    isVisible: true,
+    createdAt: "2026-11-01T10:00:00.000Z"
+  },
+  {
+    id: "bmv-2",
+    code: "GIFTPAIR",
+    title: "Complimentary Wallet Gift Voucher",
+    description: "Unlocked automatically on leather accessories combo orders.",
+    minBuyQty: 1,
+    freeQty: 1,
+    freeProductNote: "1x Espresso Bifold Wallet Free",
+    discountPercent: 5,
+    isVisible: true,
+    createdAt: "2026-11-02T10:00:00.000Z"
+  },
+  {
+    id: "bmv-3",
+    code: "MOREGEAR",
+    title: "2 Free Accessories Bundle Voucher",
+    description: "Get 2 complimentary smart accessories with watch bundle orders.",
+    minBuyQty: 1,
+    freeQty: 2,
+    freeProductNote: "Extra Strap + Charging Dock Free",
+    discountPercent: 0,
+    isVisible: true,
+    createdAt: "2026-11-03T10:00:00.000Z"
+  }
+];
+
 

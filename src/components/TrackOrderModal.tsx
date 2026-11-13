@@ -16,6 +16,7 @@ import {
   Download,
   Phone,
   Plus,
+  Minus,
   Trash2,
   ShoppingCart
 } from 'lucide-react';
@@ -25,6 +26,7 @@ import { useToast } from './common/Toast';
 import { BangladeshGeoData } from '../data/bangladeshGeo';
 import { formatBangladeshDateTime } from '../utils/dateFormatter';
 import { downloadOrderMemo } from '../utils/memoGenerator';
+import { PhoneInput88, isValidBdPhone } from './common/PhoneInput88';
 
 interface TrackOrderModalProps {
   isOpen: boolean;
@@ -105,7 +107,15 @@ const OrderCountdownTimer: React.FC<OrderCountdownTimerProps> = ({ orderTime, lo
 };
 
 export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClose }) => {
-  const { orders, updateOrder, storeConfig, products, modificationWindowHours } = useStore();
+  const { 
+    orders, 
+    updateOrder, 
+    storeConfig, 
+    products, 
+    modificationWindowHours,
+    modifyPreOrder,
+    cancelPreOrder
+  } = useStore();
   const { showToast } = useToast();
   const modalLockHours = modificationWindowHours || Number(storeConfig?.orderLockDurationHours) || 24;
 
@@ -113,6 +123,11 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
   const [orderIdInput, setOrderIdInput] = useState('');
   const [searched, setSearched] = useState(false);
   const [matchedOrders, setMatchedOrders] = useState<Order[]>([]);
+
+  // Pre-Order Modification State
+  const [modifyingPreOrderId, setModifyingPreOrderId] = useState<string | null>(null);
+  const [preOrderDraftItems, setPreOrderDraftItems] = useState<CartItem[]>([]);
+  const [swappingItemIndex, setSwappingItemIndex] = useState<number | null>(null);
 
   // Order Selected for editing address
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -135,18 +150,11 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '');
-    if (val.length <= 11) {
-      setPhoneInput(val);
-    }
-  };
-
   const handleSearchOrder = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPhone = phoneInput.trim();
-    if (cleanPhone.length !== 11) {
-      showToast("Please enter a valid 11-digit mobile number.", "error");
+    if (!isValidBdPhone(cleanPhone)) {
+      showToast("ফোন নম্বরটি অবশ্যই ১১ ডিজিটের হতে হবে এবং 0 দিয়ে শুরু হতে হবে (e.g. 017XXXXXXXX).", "error");
       return;
     }
 
@@ -198,8 +206,8 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
   const handleSaveAddress = (e: React.FormEvent, order: Order) => {
     e.preventDefault();
     const cleanNum = newPhone.replace(/\D/g, '');
-    if (cleanNum.length !== 11) {
-      showToast("Contact phone number must be exactly 11 digits.", "error");
+    if (!isValidBdPhone(cleanNum)) {
+      showToast("Contact phone number must be 11 digits starting with 0 (e.g. 017XXXXXXXX).", "error");
       return;
     }
 
@@ -229,6 +237,80 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
     showToast(`Order #${cancelingOrder.orderNumber || cancelingOrder.id} has been canceled.`, "success");
     setMatchedOrders(prev => prev.map(o => o.id === cancelingOrder.id ? { ...o, status: 'Canceled' } : o));
     setCancelingOrder(null);
+  };
+
+  const handleStartModifyPreOrder = (order: Order) => {
+    setModifyingPreOrderId(order.id);
+    setPreOrderDraftItems((order.items || []).map(it => ({ ...it })));
+    setSwappingItemIndex(null);
+  };
+
+  const handleDraftQtyChange = (idx: number, delta: number) => {
+    setPreOrderDraftItems(prev => {
+      const copy = [...prev];
+      const newQty = copy[idx].quantity + delta;
+      if (newQty <= 0) {
+        return copy.filter((_, i) => i !== idx);
+      }
+      copy[idx] = { ...copy[idx], quantity: newQty };
+      return copy;
+    });
+  };
+
+  const handleSwapItem = (itemIdx: number, targetProdId: string) => {
+    const prod = products.find(p => p.id === targetProdId);
+    if (!prod) return;
+    const price = prod.salePrice > 0 ? prod.salePrice : prod.price;
+    setPreOrderDraftItems(prev => {
+      const copy = [...prev];
+      copy[itemIdx] = {
+        productId: prod.id,
+        product: prod,
+        quantity: copy[itemIdx]?.quantity || 1,
+        selectedSize: prod.sizes?.[0]?.size || (typeof prod.sizes?.[0] === 'string' ? prod.sizes[0] : undefined),
+        selectedColor: prod.colors?.[0]?.name,
+        price,
+        isPreOrder: true,
+        preOrderDays: prod.preOrderDays || 20
+      };
+      return copy;
+    });
+    setSwappingItemIndex(null);
+    showToast(`Swapped to ${prod.title}`, 'info');
+  };
+
+  const handleSavePreOrderModification = async (order: Order) => {
+    if (preOrderDraftItems.length === 0) {
+      showToast("Order must contain at least one item. To cancel, click Cancel Pre-Order.", "error");
+      return;
+    }
+    const res = await modifyPreOrder(order.id, order.phone, preOrderDraftItems);
+    if (res.success) {
+      showToast("Pre-order items updated successfully!", "success");
+      setModifyingPreOrderId(null);
+      const newSub = preOrderDraftItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+      const newTot = Math.max(0, newSub + (Number(order.deliveryFee) || 0) - (Number(order.discount) || 0));
+      setMatchedOrders(prev => prev.map(o => o.id === order.id ? {
+        ...o,
+        items: preOrderDraftItems,
+        subtotal: newSub,
+        totalAmount: newTot,
+        isModified: true
+      } : o));
+    } else {
+      showToast(res.message, "error");
+    }
+  };
+
+  const handleCancelPreOrderAction = async (order: Order) => {
+    const res = await cancelPreOrder(order.id, order.phone, 'Customer cancelled pre-order via tracking');
+    if (res.success) {
+      showToast("Pre-order cancelled successfully!", "success");
+      setMatchedOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'Canceled' } : o));
+      setModifyingPreOrderId(null);
+    } else {
+      showToast(res.message, "error");
+    }
   };
 
   const handleWhatsAppContact = () => {
@@ -317,19 +399,14 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
               <label className="text-xs font-bold text-slate-800 block mb-1">
                 11-Digit Registered Mobile Number <span className="text-rose-500">*</span>
               </label>
-              <div className="relative">
-                <input 
-                  type="tel"
-                  required
-                  value={phoneInput}
-                  onChange={handlePhoneChange}
-                  maxLength={11}
-                  placeholder="e.g. 017XXXXXXXX"
-                  className="w-full bg-white border border-slate-300 rounded-xl p-3 text-xs text-slate-900 font-bold outline-none focus:border-[#38BDF8] transition-all font-mono pl-9"
-                />
-                <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">Must be exactly 11 digits.</p>
+              <PhoneInput88
+                id="track-phone-input"
+                name="trackPhone"
+                required
+                value={phoneInput}
+                onChange={setPhoneInput}
+                placeholder="017XXXXXXXX"
+              />
             </div>
 
             <div>
@@ -363,6 +440,8 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
                   {matchedOrders.map((order) => {
                     const orderTime = new Date(order.createdAt).getTime();
                     const isLocked = (Date.now() - orderTime) > (modalLockHours * 60 * 60 * 1000);
+                    const isPreOrderOrder = order.hasPreOrderItems || (order.items && order.items.some(i => i.isPreOrder || i.product?.availability === 'preorder' || i.product?.isPreOrder));
+                    const canModifyPreOrder = isPreOrderOrder && (order.status === 'Pending' || order.status === 'Processing');
 
                     return (
                       <div key={order.id} className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-4 text-xs shadow-xs">
@@ -492,6 +571,188 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
                           </div>
                         )}
 
+                        {/* Pre-Order Specific Management Card */}
+                        {isPreOrderOrder && (
+                          <div className="p-3.5 bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 rounded-2xl border border-blue-200/90 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-wider">
+                                <Clock className="w-3 h-3" />
+                                PRE-ORDER ORDER
+                              </span>
+                              <span className="text-[10px] font-extrabold text-blue-900 bg-white px-2 py-0.5 rounded border border-blue-200">
+                                {order.status}
+                              </span>
+                            </div>
+
+                            {canModifyPreOrder ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-blue-900 font-bold">
+                                  You can modify or cancel your pre-order items before shipment processing.
+                                </p>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartModifyPreOrder(order)}
+                                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>Modify Pre-Order</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelPreOrderAction(order)}
+                                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Cancel Pre-Order</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-600 font-medium bg-white p-2.5 rounded-xl border border-slate-200">
+                                Pre-order modifications are closed for this order status.
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Interactive Pre-Order Modification Editor Panel */}
+                        {modifyingPreOrderId === order.id && (
+                          <div className="p-4 bg-white rounded-2xl border-2 border-blue-400 space-y-4 shadow-lg animate-scale-up">
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                              <h4 className="text-xs sm:text-sm font-black text-blue-900 flex items-center gap-2">
+                                <Edit3 className="w-4 h-4 text-blue-600" />
+                                <span>Modify Pre-Order Products &amp; Quantity</span>
+                              </h4>
+                              <button
+                                onClick={() => setModifyingPreOrderId(null)}
+                                className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Draft Items List */}
+                            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                              {preOrderDraftItems.map((item, itIdx) => (
+                                <div key={itIdx} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {item.product?.images?.[0] && (
+                                      <img src={item.product.images[0]} alt="" className="w-10 h-10 object-cover rounded-lg bg-white border border-slate-200 shrink-0" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="font-extrabold text-slate-900 text-xs truncate max-w-[200px]">
+                                        {item.product?.title}
+                                      </p>
+                                      <p className="text-[10px] text-blue-700 font-bold">
+                                        ৳{item.price} • Est. delivery ~{item.preOrderDays || 20} days
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 self-end sm:self-center">
+                                    {/* Qty Adjuster */}
+                                    <div className="inline-flex items-center bg-white border border-slate-300 rounded-lg p-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDraftQtyChange(itIdx, -1)}
+                                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-rose-50 text-slate-700 cursor-pointer"
+                                      >
+                                        <Minus className="w-3 h-3" />
+                                      </button>
+                                      <span className="w-7 text-center font-black text-xs font-mono">
+                                        {item.quantity}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDraftQtyChange(itIdx, 1)}
+                                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-blue-50 text-slate-700 cursor-pointer"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                      </button>
+                                    </div>
+
+                                    {/* Swap Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSwappingItemIndex(swappingItemIndex === itIdx ? null : itIdx)}
+                                      className="px-2 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-800 text-[10px] font-black cursor-pointer"
+                                    >
+                                      Change
+                                    </button>
+
+                                    {/* Remove item */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDraftQtyChange(itIdx, -item.quantity)}
+                                      className="p-1 rounded-lg hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+
+                                  {/* Swapping Dropdown / List */}
+                                  {swappingItemIndex === itIdx && (
+                                    <div className="w-full mt-2 pt-2 border-t border-slate-200">
+                                      <p className="text-[10px] font-bold text-slate-600 mb-1">
+                                        Select an alternative pre-order product:
+                                      </p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
+                                        {products
+                                          .filter(p => (p.availability === 'preorder' || p.isPreOrder) && p.id !== item.productId)
+                                          .map(p => (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              onClick={() => handleSwapItem(itIdx, p.id)}
+                                              className="p-1.5 text-left bg-white hover:bg-blue-50 border border-slate-200 rounded-lg text-xs font-bold flex items-center justify-between cursor-pointer"
+                                            >
+                                              <span className="truncate max-w-[150px]">{p.title}</span>
+                                              <span className="font-mono text-blue-700 shrink-0">৳{p.salePrice > 0 ? p.salePrice : p.price}</span>
+                                            </button>
+                                          ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Live Preview Calculation */}
+                            <div className="p-3 bg-blue-50/80 rounded-xl border border-blue-200 flex items-center justify-between text-xs font-bold">
+                              <div>
+                                <span className="text-slate-600 block text-[10px] uppercase">Updated Estimated Total</span>
+                                <span className="font-mono text-base font-black text-blue-900">
+                                  ৳{Math.max(0, preOrderDraftItems.reduce((acc, it) => acc + it.price * it.quantity, 0) + (Number(order.deliveryFee) || 0) - (Number(order.discount) || 0))}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-slate-500 block text-[10px]">Delivery Fee</span>
+                                <span className="font-mono text-slate-800">৳{order.deliveryFee || 0}</span>
+                              </div>
+                            </div>
+
+                            {/* Save Actions */}
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                              <button
+                                type="button"
+                                onClick={() => setModifyingPreOrderId(null)}
+                                className="px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-200 cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSavePreOrderModification(order)}
+                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs flex items-center gap-1.5 shadow-md cursor-pointer active:scale-95"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Save Changes</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Total Amount */}
                         <div className="pt-2 border-t border-slate-200 flex items-center justify-between font-bold text-slate-900 text-sm">
                           <span>Total Payable ({order.paymentMethod || 'Cash on Delivery'}):</span>
@@ -599,13 +860,13 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({ isOpen, onClos
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <label className="text-[10px] font-bold text-slate-500 uppercase">Contact Phone Number</label>
-                                <input
-                                  type="tel"
-                                  maxLength={11}
+                                <PhoneInput88
+                                  id="track-edit-phone"
+                                  name="editPhone"
+                                  required
                                   value={newPhone}
-                                  onChange={(e) => setNewPhone(e.target.value.replace(/\D/g, ''))}
-                                  placeholder="11-digit mobile number"
-                                  className="w-full p-2 border border-slate-200 bg-slate-50 rounded-lg text-[11px] font-bold outline-none focus:border-indigo-500 font-mono"
+                                  onChange={setNewPhone}
+                                  placeholder="017XXXXXXXX"
                                 />
                               </div>
                               <div className="space-y-1">

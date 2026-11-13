@@ -1,19 +1,339 @@
-import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Edit, Video, Image as ImageIcon, Upload, Eye, EyeOff, X, Sparkles, Link as LinkIcon, Check } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Plus, Trash2, Edit, Video, Image as ImageIcon, Upload, Eye, EyeOff, X, Sparkles, Link as LinkIcon, Check, Clock, Gift, Save } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
-import { HeroSlide } from '../../types/store';
+import { HeroSlide, SectionBannerConfig, Category } from '../../types/store';
+import { INITIAL_STORE_CONFIG } from '../../data/initialData';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useToast } from '../common/Toast';
 import { compressImage } from '../../utils/imageCompressor';
 import { uploadImageToStorage } from '../../storageService';
+import { resolveStoreAssetUrl } from '../../utils/clientAssetResolver';
+
+interface SectionBannerEditorProps {
+  bannerNumber: 2 | 3;
+  heading: string;
+  description: string;
+  badgeColorClass: string;
+  initialBanner: SectionBannerConfig;
+  categories: Category[];
+  onSave: (updated: SectionBannerConfig) => Promise<void> | void;
+}
+
+const SectionBannerEditor: React.FC<SectionBannerEditorProps> = ({
+  bannerNumber,
+  heading,
+  description,
+  badgeColorClass,
+  initialBanner,
+  categories,
+  onSave,
+}) => {
+  const { showToast } = useToast();
+  const [form, setForm] = useState<SectionBannerConfig>(initialBanner);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setForm(initialBanner);
+  }, [initialBanner]);
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    setIsUploading(true);
+    try {
+      const downloadUrl = await uploadImageToStorage(file, 'section-banners');
+      if (downloadUrl) {
+        setForm((prev) => ({ ...prev, mediaUrl: downloadUrl, mediaType: 'image' }));
+        showToast('Banner photo uploaded successfully!', 'success');
+      } else {
+        const compressed = await compressImage(file, 1400, 0.8);
+        setForm((prev) => ({ ...prev, mediaUrl: compressed, mediaType: 'image' }));
+        showToast('Banner photo compressed & ready!', 'success');
+      }
+    } catch {
+      showToast('Failed to upload banner image.', 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleSaveClick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.mediaUrl?.trim()) {
+      showToast('Please select or paste a Banner Image / Video URL.', 'error');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onSave({
+        ...form,
+        title: form.title.trim(),
+        subtitle: form.subtitle.trim(),
+        badge: form.badge.trim(),
+        ctaText: form.ctaText.trim() || 'EXPLORE NOW',
+        ctaLink: form.ctaLink.trim() || '#products',
+        mediaUrl: form.mediaUrl.trim(),
+      });
+      showToast(`Banner #${bannerNumber} (${heading}) updated successfully!`, 'success');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const previewSrc = form.mediaUrl ? resolveStoreAssetUrl(form.mediaUrl) : '';
+
+  return (
+    <form onSubmit={handleSaveClick} className="bg-slate-800/95 border border-slate-700 rounded-2xl p-5 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700 pb-3">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${badgeColorClass}`}>
+              Banner #{bannerNumber}
+            </span>
+            <h4 className="text-base font-extrabold text-white font-['Outfit']">{heading}</h4>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">{description}</p>
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-700 shrink-0">
+          <input
+            type="checkbox"
+            checked={form.active !== false}
+            onChange={(e) => setForm((prev) => ({ ...prev, active: e.target.checked }))}
+            className="w-4 h-4 rounded accent-[#38BDF8] cursor-pointer"
+          />
+          <span className={`text-xs font-black ${form.active !== false ? 'text-emerald-400' : 'text-slate-400'}`}>
+            {form.active !== false ? 'Show on Store' : 'Hidden'}
+          </span>
+        </label>
+      </div>
+
+      {/* Live Preview */}
+      {previewSrc && (
+        <div className="max-w-2xl mx-auto">
+          <div className="relative h-44 sm:h-48 rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 shadow-lg">
+            {form.mediaType === 'video' ? (
+              <video src={previewSrc} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+            ) : (
+              <img src={previewSrc} alt={form.title} className="w-full h-full object-cover" />
+            )}
+            <div
+              className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/25 to-transparent"
+              style={{ opacity: form.overlayOpacity ?? 0.35 }}
+            />
+            {!form.hideTextOverlay && (
+              <div className="absolute bottom-3 left-4 right-4 text-white space-y-1">
+                {form.badge && (
+                  <span className="inline-block px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black uppercase">
+                    {form.badge}
+                  </span>
+                )}
+                <p className="text-sm font-black drop-shadow font-['Outfit'] line-clamp-1">{form.title || 'Banner Headline'}</p>
+                <p className="text-[11px] text-slate-200 drop-shadow line-clamp-1">{form.subtitle || 'Banner Subtitle'}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Inputs Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">Headline Title</label>
+          <input
+            type="text"
+            value={form.title}
+            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+            placeholder="Banner headline"
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">Subtitle / Tagline</label>
+          <input
+            type="text"
+            value={form.subtitle}
+            onChange={(e) => setForm((prev) => ({ ...prev, subtitle: e.target.value }))}
+            placeholder="Short subtitle description"
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">Badge Tag</label>
+          <input
+            type="text"
+            value={form.badge}
+            onChange={(e) => setForm((prev) => ({ ...prev, badge: e.target.value }))}
+            placeholder="UPCOMING DROPS"
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">Target Category (Optional)</label>
+          <select
+            value={form.categoryLink || ''}
+            onChange={(e) => setForm((prev) => ({ ...prev, categoryLink: e.target.value }))}
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none"
+          >
+            <option value="">None (Scroll to Section)</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.name}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">CTA Button Label</label>
+          <input
+            type="text"
+            value={form.ctaText}
+            onChange={(e) => setForm((prev) => ({ ...prev, ctaText: e.target.value }))}
+            placeholder="EXPLORE NOW"
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-300 block mb-1">CTA Scroll Link / Hash</label>
+          <input
+            type="text"
+            value={form.ctaLink}
+            onChange={(e) => setForm((prev) => ({ ...prev, ctaLink: e.target.value }))}
+            placeholder="#upcoming-products"
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        </div>
+      </div>
+
+      {/* Media Upload & Video URL */}
+      <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <ImageIcon className="w-4 h-4 text-[#38BDF8]" />
+            <span>Banner Photo / Video</span>
+          </label>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({ ...prev, mediaType: 'image' }))}
+              className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                form.mediaType === 'image' ? 'bg-[#38BDF8] text-slate-900' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              Image
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({ ...prev, mediaType: 'video' }))}
+              className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                form.mediaType === 'video' ? 'bg-[#38BDF8] text-slate-900' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              Video
+            </button>
+          </div>
+        </div>
+
+        {form.mediaType === 'image' ? (
+          <div className="space-y-2.5">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => handleUpload(e.target.files)}
+              className="hidden"
+            />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileRef.current?.click()}
+                className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#38BDF8] to-[#6366F1] text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{isUploading ? 'Uploading photo...' : '📸 ডিভাইস থেকে ছবি আপলোড করুন'}</span>
+              </button>
+              <input
+                type="text"
+                value={form.mediaUrl}
+                onChange={(e) => setForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+                placeholder="Or paste Image URL..."
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-[#38BDF8]"
+              />
+            </div>
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={form.mediaUrl}
+            onChange={(e) => setForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+            placeholder="https://...mp4 or https://youtube.com/..."
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+          />
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-400">Dimming:</label>
+            <input
+              type="range"
+              min="0.1"
+              max="0.8"
+              step="0.05"
+              value={form.overlayOpacity ?? 0.35}
+              onChange={(e) => setForm((prev) => ({ ...prev, overlayOpacity: parseFloat(e.target.value) }))}
+              className="accent-[#38BDF8] cursor-pointer w-20"
+            />
+            <span className="text-xs font-mono text-slate-300">{Math.round((form.overlayOpacity ?? 0.35) * 100)}%</span>
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.showCta !== false}
+              onChange={(e) => setForm((prev) => ({ ...prev, showCta: e.target.checked }))}
+              className="w-4 h-4 rounded accent-[#38BDF8]"
+            />
+            <span className="text-xs font-bold text-slate-200">Show CTA Button</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.hideTextOverlay}
+              onChange={(e) => setForm((prev) => ({ ...prev, hideTextOverlay: e.target.checked }))}
+              className="w-4 h-4 rounded accent-amber-500"
+            />
+            <span className="text-xs font-bold text-amber-400">Hide All Text Overlay</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={isSaving}
+          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-xs flex items-center gap-2 shadow-md hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" />
+          <span>{isSaving ? 'Saving...' : `Save Banner #${bannerNumber}`}</span>
+        </button>
+      </div>
+    </form>
+  );
+};
 
 export const HeroManager: React.FC = () => {
   const { heroSlides, addHeroSlide, updateHeroSlide, deleteHeroSlide, reorderHeroSlides, categories, storeConfig, updateStoreConfig } = useStore();
   const { showToast } = useToast();
 
+  const [activeBannerTab, setActiveBannerTab] = useState<'all' | 'top' | 'upcoming' | 'buymore'>('all');
   const [autoplaySeconds, setAutoplaySeconds] = useState<number>(
     storeConfig.heroAutoplaySpeedSeconds || 5
   );
+
+  const upcomingBannerData: SectionBannerConfig = storeConfig.upcomingBanner || INITIAL_STORE_CONFIG.upcomingBanner!;
+  const buyMoreBannerData: SectionBannerConfig = storeConfig.buyMoreBanner || INITIAL_STORE_CONFIG.buyMoreBanner!;
 
   const [editingSlide, setEditingSlide] = useState<HeroSlide | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -217,28 +537,87 @@ export const HeroManager: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-800 p-4 rounded-2xl border border-slate-700">
         <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-bold text-white font-['Outfit']">Daraz-Style Hero Banner & Slider Manager</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-bold text-white font-['Outfit']">Storefront 3-Banner Manager</h3>
             <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-[#38BDF8] font-mono text-xs font-black border border-sky-500/30">
-              মোট ব্যানার: {heroSlides.length}টি
+              Top Slides: {heroSlides.length} + Section Banners: 2
             </span>
           </div>
-          <p className="text-xs text-slate-400">Upload banner graphics directly from your device, embed videos, and configure promo CTAs.</p>
+          <p className="text-xs text-slate-400">Manage all 3 storefront banners: Banner #1 (Top Header), Banner #2 (Before Upcoming Products), and Banner #3 (Above Buy One Get More).</p>
         </div>
 
-        {!isCreating && (
+        {!isCreating && (activeBannerTab === 'all' || activeBannerTab === 'top') && (
           <button
             onClick={() => {
               resetForm();
               setIsCreating(true);
             }}
-            className="px-4 py-2 rounded-xl bg-[#38BDF8] text-slate-900 font-extrabold text-xs flex items-center gap-2 hover:bg-sky-400 transition-colors shadow-md cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-[#38BDF8] text-slate-900 font-extrabold text-xs flex items-center gap-2 hover:bg-sky-400 transition-colors shadow-md cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
-            <span>Add / Upload New Banner</span>
+            <span>Add Top Banner Slide</span>
           </button>
         )}
       </div>
+
+      {/* 3-Banner Section Switcher */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-900/90 p-2 rounded-2xl border border-slate-700">
+        {[
+          { id: 'all' as const, label: 'All 3 Banners (সবগুলো)' },
+          { id: 'top' as const, label: `Banner #1: Top Carousel (${heroSlides.length})` },
+          { id: 'upcoming' as const, label: 'Banner #2: Upcoming Products' },
+          { id: 'buymore' as const, label: 'Banner #3: Buy One Get More' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveBannerTab(tab.id)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+              activeBannerTab === tab.id
+                ? 'bg-gradient-to-r from-[#38BDF8] to-[#6366F1] text-white shadow-md'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Section Banners (#2 Before Upcoming Products & #3 Above Buy One Get More) */}
+      {(activeBannerTab === 'all' || activeBannerTab === 'upcoming') && (
+        <SectionBannerEditor
+          bannerNumber={2}
+          heading="Upcoming Products Banner (আপকামিং প্রোডাক্টের পূর্বের ব্যানার)"
+          description="Displayed between Our Products and Upcoming Products (Pre-Order) with slightly narrower width."
+          badgeColorClass="bg-amber-500/20 text-amber-300 border border-amber-500/40"
+          initialBanner={upcomingBannerData}
+          categories={categories}
+          onSave={(updated) => updateStoreConfig({ upcomingBanner: updated })}
+        />
+      )}
+
+      {(activeBannerTab === 'all' || activeBannerTab === 'buymore') && (
+        <SectionBannerEditor
+          bannerNumber={3}
+          heading="Buy One Get More Banner (বাই ওয়ান গেট মোর ব্যানার)"
+          description="Displayed directly above the Buy One Get More / Combo Offers section with slightly narrower width."
+          badgeColorClass="bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+          initialBanner={buyMoreBannerData}
+          categories={categories}
+          onSave={(updated) => updateStoreConfig({ buyMoreBanner: updated })}
+        />
+      )}
+
+      {(activeBannerTab === 'all' || activeBannerTab === 'top') && (
+        <div className="space-y-6 pt-2 border-t border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-sky-500/20 text-[#38BDF8] border border-sky-500/40">
+              Banner #1
+            </span>
+            <h4 className="text-base font-extrabold text-white font-['Outfit']">
+              Top Main Hero Banner Carousel Slides
+            </h4>
+          </div>
 
       {/* MODULE 1: UI Image Size Guidelines Documentation Card */}
       <div className="bg-slate-900/90 border border-sky-500/30 p-4 rounded-2xl space-y-2">
@@ -764,6 +1143,8 @@ export const HeroManager: React.FC = () => {
           );
         })}
       </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       <ConfirmModal

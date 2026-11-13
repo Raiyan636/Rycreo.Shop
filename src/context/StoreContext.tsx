@@ -15,9 +15,22 @@ import {
   QuickCategoryShortcut,
   StaticPage,
   SearchTelemetryLog,
-  UnifiedStockStatus
+  UnifiedStockStatus,
+  PreOrderProduct,
+  PreOrderRecord,
+  BuyMoreOffer,
+  BuyMoreVoucher,
+  ShowcaseSectionKey,
+  ProductColorVariant
 } from '../types/store';
-import { getProductStockStatus as calculateProductStockStatus } from '../utils/stockHelper';
+import {
+  getProductStockStatus as calculateProductStockStatus,
+  getVariationStockForSelection,
+  computeAutoTotalStock,
+  getPreOrderQuotaStatus,
+  getVariationColor,
+  getVariationSize,
+} from '../utils/stockHelper';
 import { 
   INITIAL_STORE_CONFIG, 
   INITIAL_HERO_SLIDES, 
@@ -28,7 +41,10 @@ import {
   INITIAL_REVIEWS,
   INITIAL_QUICK_CATEGORIES,
   INITIAL_GUARANTEES,
-  INITIAL_STATIC_PAGES
+  INITIAL_STATIC_PAGES,
+  INITIAL_PREORDER_PRODUCTS,
+  INITIAL_BUYMORE_OFFERS,
+  INITIAL_BUYMORE_VOUCHERS
 } from '../data/initialData';
 import { updateHeadSEO } from '../utils/seo';
 import { formatBangladeshDateTime } from '../utils/dateFormatter';
@@ -68,7 +84,11 @@ import {
   subscribeToAttributes,
   syncAttributeDocToFirestore,
   deleteAttributeDocFromFirestore,
-  syncOrderDocToFirestore
+  syncOrderDocToFirestore,
+  subscribeToPreOrders,
+  addPreOrderToFirestore,
+  updatePreOrderInFirestore,
+  deletePreOrderFromFirestore
 } from '../firebaseServices';
 import { 
   createProduct as createProductInAdminService, 
@@ -107,6 +127,8 @@ try {
 export type AdminTabType = 
   | 'overview' 
   | 'products' 
+  | 'pre_orders'
+  | 'buy_more'
   | 'categories' 
   | 'quick_categories'
   | 'attributes' 
@@ -128,6 +150,10 @@ export type AdminTabType =
 
 interface StoreContextType {
   products: Product[];
+  preOrderProducts: PreOrderProduct[];
+  preOrders: PreOrderRecord[];
+  buyMoreOffers: BuyMoreOffer[];
+  buyMoreVouchers: BuyMoreVoucher[];
   categories: Category[];
   quickCategories: QuickCategoryShortcut[];
   attributes: ProductAttribute[];
@@ -143,6 +169,9 @@ interface StoreContextType {
   activeCategory: string; // Category name or 'All'
   searchQuery: string;
   selectedProduct: Product | null;
+  selectedPreOrderProduct: PreOrderProduct | null;
+  selectedBuyMoreOffer: BuyMoreOffer | null;
+  activeSeeMoreSection: ShowcaseSectionKey | null;
   isCartOpen: boolean;
   isCheckoutOpen: boolean;
   isAdminModalOpen: boolean;
@@ -163,6 +192,9 @@ interface StoreContextType {
   setActiveCategory: (cat: string) => void;
   setSearchQuery: (query: string) => void;
   setSelectedProduct: (product: Product | null) => void;
+  setSelectedPreOrderProduct: (product: PreOrderProduct | null) => void;
+  setSelectedBuyMoreOffer: (offer: BuyMoreOffer | null) => void;
+  setActiveSeeMoreSection: (section: ShowcaseSectionKey | null) => void;
   setIsCartOpen: (open: boolean) => void;
   setIsCheckoutOpen: (open: boolean) => void;
   setIsAdminModalOpen: (open: boolean) => void;
@@ -204,6 +236,30 @@ interface StoreContextType {
   deleteProducts: (ids: string[]) => Promise<boolean>;
   moveProduct: (id: string, direction: 'up' | 'down') => void;
   updateProductPosition: (id: string, newPosition: number) => void;
+
+  // Pre-Order Products & Pre-Order Management
+  addPreOrderProduct: (item: Omit<PreOrderProduct, 'id' | 'createdAt'>) => Promise<boolean>;
+  updatePreOrderProduct: (item: PreOrderProduct) => Promise<boolean>;
+  deletePreOrderProduct: (id: string) => Promise<boolean>;
+  movePreOrderProduct: (id: string, direction: 'up' | 'down') => void;
+  placePreOrder: (record: Omit<PreOrderRecord, 'id' | 'preOrderNumber' | 'createdAt' | 'status'>) => Promise<PreOrderRecord>;
+  updatePreOrderStatus: (id: string, status: PreOrderRecord['status']) => void;
+  togglePreOrderSeen: (id: string) => void;
+  deletePreOrder: (id: string) => boolean;
+  preOrderProductToCartItem: (item: PreOrderProduct, size?: string, quantity?: number, color?: string, variation?: ProductVariation) => CartItem;
+  addPreOrderToCart: (item: PreOrderProduct, size?: string, quantity?: number, color?: string, variation?: ProductVariation) => CartItem;
+  modifyPreOrder: (orderId: string, phone: string, items: CartItem[]) => Promise<{ success: boolean; message: string }>;
+  cancelPreOrder: (orderId: string, phone: string, reason?: string) => Promise<{ success: boolean; message: string }>;
+
+  // Buy One Get More Offers & Offer Vouchers
+  addBuyMoreOffer: (offer: Omit<BuyMoreOffer, 'id' | 'createdAt'>) => Promise<boolean>;
+  updateBuyMoreOffer: (offer: BuyMoreOffer) => Promise<boolean>;
+  deleteBuyMoreOffer: (id: string) => Promise<boolean>;
+  addBuyMoreVoucher: (voucher: Omit<BuyMoreVoucher, 'id' | 'createdAt'>) => Promise<boolean>;
+  updateBuyMoreVoucher: (voucher: BuyMoreVoucher) => Promise<boolean>;
+  deleteBuyMoreVoucher: (id: string) => Promise<boolean>;
+  buyMoreOfferToCartItem: (offer: BuyMoreOffer, quantity?: number, size?: string, color?: string) => CartItem;
+  addBuyMoreOfferToCart: (offer: BuyMoreOffer, quantity?: number, size?: string, color?: string) => CartItem;
 
   // Admin CRUD - Categories
   addCategory: (category: Omit<Category, 'id'>) => void;
@@ -312,7 +368,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(() => {
     try {
       const saved = localStorage.getItem('rycreoshop_store_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...INITIAL_STORE_CONFIG,
+          ...parsed,
+          sectionLayouts: {
+            ourProducts: {
+              ...INITIAL_STORE_CONFIG.sectionLayouts!.ourProducts,
+              ...(parsed?.sectionLayouts?.ourProducts || {}),
+            },
+            preOrder: {
+              ...INITIAL_STORE_CONFIG.sectionLayouts!.preOrder,
+              ...(parsed?.sectionLayouts?.preOrder || {}),
+            },
+            buyMore: {
+              ...INITIAL_STORE_CONFIG.sectionLayouts!.buyMore,
+              ...(parsed?.sectionLayouts?.buyMore || {}),
+            },
+          },
+        };
+      }
     } catch {}
     return INITIAL_STORE_CONFIG;
   });
@@ -351,7 +427,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem('rycreoshop_products');
       if (saved !== null) {
         const p = JSON.parse(saved);
-        if (Array.isArray(p)) return p;
+        if (Array.isArray(p)) {
+          const v2Key = 'rycreoshop_catalog_v2_prods';
+          if (!localStorage.getItem(v2Key)) {
+            const newIds = new Set(['prod-20', 'prod-21', 'prod-22', 'prod-23', 'prod-24']);
+            const existingIds = new Set(p.map((x: Product) => x.id));
+            const additions = INITIAL_PRODUCTS.filter(item => newIds.has(item.id) && !existingIds.has(item.id));
+            const merged = [...p, ...additions];
+            localStorage.setItem('rycreoshop_products', JSON.stringify(merged));
+            localStorage.setItem(v2Key, 'true');
+            return merged;
+          }
+          return p;
+        }
       }
     } catch {}
     return [];
@@ -406,6 +494,70 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {}
     return [];
   });
+  const [preOrderProducts, setPreOrderProducts] = useState<PreOrderProduct[]>(() => {
+    try {
+      const saved = localStorage.getItem('rycreoshop_preorder_products');
+      if (saved !== null) {
+        const p = JSON.parse(saved);
+        if (Array.isArray(p)) {
+          const seedKey = 'rycreoshop_upcoming_seed_20261113_v2';
+          if (!localStorage.getItem(seedKey)) {
+            const existingIds = new Set(p.map((x: PreOrderProduct) => x.id));
+            const newIds = new Set(['pre-prod-6', 'pre-prod-7', 'pre-prod-8', 'pre-prod-9', 'pre-prod-10', 'pre-prod-11', 'pre-prod-12', 'pre-prod-13']);
+            const additions = INITIAL_PREORDER_PRODUCTS.filter(item => newIds.has(item.id) && !existingIds.has(item.id));
+            const merged = [...p, ...additions];
+            localStorage.setItem('rycreoshop_preorder_products', JSON.stringify(merged));
+            localStorage.setItem(seedKey, 'true');
+            return merged;
+          }
+          return p;
+        }
+      }
+    } catch {}
+    return INITIAL_PREORDER_PRODUCTS;
+  });
+  const [preOrders, setPreOrders] = useState<PreOrderRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('rycreoshop_pre_orders');
+      if (saved !== null) {
+        const p = JSON.parse(saved);
+        if (Array.isArray(p)) return p;
+      }
+    } catch {}
+    return [];
+  });
+  const [buyMoreOffers, setBuyMoreOffers] = useState<BuyMoreOffer[]>(() => {
+    try {
+      const saved = localStorage.getItem('rycreoshop_buymore_offers');
+      if (saved !== null) {
+        const p = JSON.parse(saved);
+        if (Array.isArray(p)) {
+          const seedKey = 'rycreoshop_buymore_seed_20261113_v2';
+          if (!localStorage.getItem(seedKey)) {
+            const existingIds = new Set(p.map((x: BuyMoreOffer) => x.id));
+            const newIds = new Set(['bogo-5', 'bogo-6', 'bogo-7', 'bogo-8', 'bogo-9']);
+            const additions = INITIAL_BUYMORE_OFFERS.filter(item => newIds.has(item.id) && !existingIds.has(item.id));
+            const merged = [...p, ...additions];
+            localStorage.setItem('rycreoshop_buymore_offers', JSON.stringify(merged));
+            localStorage.setItem(seedKey, 'true');
+            return merged;
+          }
+          return p;
+        }
+      }
+    } catch {}
+    return INITIAL_BUYMORE_OFFERS;
+  });
+  const [buyMoreVouchers, setBuyMoreVouchers] = useState<BuyMoreVoucher[]>(() => {
+    try {
+      const saved = localStorage.getItem('rycreoshop_buymore_vouchers');
+      if (saved !== null) {
+        const p = JSON.parse(saved);
+        if (Array.isArray(p)) return p;
+      }
+    } catch {}
+    return INITIAL_BUYMORE_VOUCHERS;
+  });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [collectedVouchers, setCollectedVouchers] = useState<string[]>(['RYCREO10', 'WELCOME50']);
@@ -448,6 +600,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedPreOrderProduct, setSelectedPreOrderProduct] = useState<PreOrderProduct | null>(null);
+  const [selectedBuyMoreOffer, setSelectedBuyMoreOffer] = useState<BuyMoreOffer | null>(null);
+  const [activeSeeMoreSection, setActiveSeeMoreSection] = useState<ShowcaseSectionKey | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
@@ -568,23 +723,88 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       console.log("[refreshStore] Fetching latest live store data from Cloud Firestore or Server...");
       let cloudData = await getStoreDataFromServer();
-      if (!cloudData) {
-        try {
-          const res = await fetch('/api/store/data');
-          if (res.ok) {
-            cloudData = await res.json();
-          }
-        } catch (serverErr) {
-          console.warn("[refreshStore] Server fallback fetch notice:", serverErr);
+      let serverData: any = null;
+      try {
+        const res = await fetch('/api/store/data');
+        if (res.ok) {
+          const raw = await res.json();
+          serverData = raw?.data ? raw.data : raw;
         }
+      } catch (serverErr) {
+        console.warn("[refreshStore] Server fallback fetch notice:", serverErr);
+      }
+
+      if (!cloudData && serverData) {
+        cloudData = serverData;
+      } else if (cloudData && serverData) {
+        cloudData = {
+          ...serverData,
+          ...cloudData,
+          preOrderProducts: Array.isArray(cloudData.preOrderProducts) ? cloudData.preOrderProducts : serverData.preOrderProducts,
+          buyMoreOffers: Array.isArray(cloudData.buyMoreOffers) ? cloudData.buyMoreOffers : serverData.buyMoreOffers,
+          buyMoreVouchers: Array.isArray(cloudData.buyMoreVouchers) ? cloudData.buyMoreVouchers : serverData.buyMoreVouchers,
+          preOrders: Array.isArray(serverData.preOrders) ? serverData.preOrders : cloudData.preOrders,
+        };
       }
 
       if (cloudData) {
         isStoreLoadedRef.current = true;
         if (Array.isArray(cloudData.products)) {
-          setProducts(cloudData.products);
-          currentStoreDataRef.current.products = cloudData.products;
-          try { localStorage.setItem('rycreoshop_products', JSON.stringify(cloudData.products)); } catch {}
+          const existingIds = new Set(cloudData.products.map((x: Product) => x.id));
+          const newProdIds = new Set(['prod-20', 'prod-21', 'prod-22', 'prod-23', 'prod-24']);
+          const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_cloud_prods');
+          const mergedProds = needSeed
+            ? [...cloudData.products, ...INITIAL_PRODUCTS.filter(i => newProdIds.has(i.id) && !existingIds.has(i.id))]
+            : cloudData.products;
+          if (needSeed) {
+            try { localStorage.setItem('rycreoshop_catalog_v2_cloud_prods', 'true'); } catch {}
+          }
+          setProducts(mergedProds);
+          currentStoreDataRef.current.products = mergedProds;
+          try { localStorage.setItem('rycreoshop_products', JSON.stringify(mergedProds)); } catch {}
+        }
+        if (Array.isArray(cloudData.preOrderProducts)) {
+          const existingIds = new Set(cloudData.preOrderProducts.map((x: PreOrderProduct) => x.id));
+          const newPreIds = new Set(['pre-prod-6', 'pre-prod-7', 'pre-prod-8', 'pre-prod-9', 'pre-prod-10', 'pre-prod-11', 'pre-prod-12', 'pre-prod-13']);
+          const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_cloud_pre');
+          const mergedPre = needSeed
+            ? [...cloudData.preOrderProducts, ...INITIAL_PREORDER_PRODUCTS.filter(i => newPreIds.has(i.id) && !existingIds.has(i.id))]
+            : cloudData.preOrderProducts;
+          if (needSeed) {
+            try { localStorage.setItem('rycreoshop_catalog_v2_cloud_pre', 'true'); } catch {}
+          }
+          setPreOrderProducts(mergedPre);
+          currentStoreDataRef.current.preOrderProducts = mergedPre;
+          try { localStorage.setItem('rycreoshop_preorder_products', JSON.stringify(mergedPre)); } catch {}
+        }
+        if (Array.isArray(cloudData.buyMoreOffers)) {
+          const existingIds = new Set(cloudData.buyMoreOffers.map((x: BuyMoreOffer) => x.id));
+          const newBmIds = new Set(['bogo-5', 'bogo-6', 'bogo-7', 'bogo-8', 'bogo-9']);
+          const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_cloud_bm');
+          const mergedBm = needSeed
+            ? [...cloudData.buyMoreOffers, ...INITIAL_BUYMORE_OFFERS.filter(i => newBmIds.has(i.id) && !existingIds.has(i.id))]
+            : cloudData.buyMoreOffers;
+          if (needSeed) {
+            try { localStorage.setItem('rycreoshop_catalog_v2_cloud_bm', 'true'); } catch {}
+          }
+          setBuyMoreOffers(mergedBm);
+          currentStoreDataRef.current.buyMoreOffers = mergedBm;
+          try { localStorage.setItem('rycreoshop_buymore_offers', JSON.stringify(mergedBm)); } catch {}
+        }
+        if (Array.isArray(cloudData.buyMoreVouchers)) {
+          setBuyMoreVouchers(cloudData.buyMoreVouchers);
+          currentStoreDataRef.current.buyMoreVouchers = cloudData.buyMoreVouchers;
+          try { localStorage.setItem('rycreoshop_buymore_vouchers', JSON.stringify(cloudData.buyMoreVouchers)); } catch {}
+        }
+        if (Array.isArray(cloudData.preOrders)) {
+          setPreOrders(prev => {
+            const map = new Map<string, PreOrderRecord>();
+            prev.forEach(p => map.set(p.id, p));
+            cloudData.preOrders.forEach((p: PreOrderRecord) => map.set(p.id, p));
+            const merged = Array.from(map.values()).sort((a, b) => (b.orderTimestamp || 0) - (a.orderTimestamp || 0));
+            currentStoreDataRef.current.preOrders = merged;
+            return merged;
+          });
         }
         if (Array.isArray(cloudData.categories)) {
           setCategories(cloudData.categories);
@@ -618,7 +838,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         if (cloudData.storeConfig && typeof cloudData.storeConfig === 'object') {
           setStoreConfig(prev => {
-            const merged = { ...prev, ...cloudData.storeConfig };
+            const incomingLayouts = cloudData.storeConfig.sectionLayouts || {};
+            const merged = {
+              ...prev,
+              ...cloudData.storeConfig,
+              sectionLayouts: {
+                ourProducts: {
+                  ...INITIAL_STORE_CONFIG.sectionLayouts!.ourProducts,
+                  ...(prev.sectionLayouts?.ourProducts || {}),
+                  ...(incomingLayouts.ourProducts || {}),
+                },
+                preOrder: {
+                  ...INITIAL_STORE_CONFIG.sectionLayouts!.preOrder,
+                  ...(prev.sectionLayouts?.preOrder || {}),
+                  ...(incomingLayouts.preOrder || {}),
+                },
+                buyMore: {
+                  ...INITIAL_STORE_CONFIG.sectionLayouts!.buyMore,
+                  ...(prev.sectionLayouts?.buyMore || {}),
+                  ...(incomingLayouts.buyMore || {}),
+                },
+              },
+            };
             currentStoreDataRef.current.storeConfig = merged;
             try { localStorage.setItem('rycreoshop_store_config', JSON.stringify(merged)); } catch {}
             return merged;
@@ -712,7 +953,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         email: "rycreoshop@gmail.com",
         pass: "Ahmad636Taseen@#",
         code: "2026",
-        allowedTabs: ["overview", "products", "orders", "inventory", "categories", "coupons", "reviews", "hero", "settings", "payment_gateways", "seo", "media", "static_pages", "security", "search_analytics", "access_control"]
+        allowedTabs: ["overview", "products", "pre_orders", "buy_more", "orders", "inventory", "categories", "coupons", "reviews", "hero", "settings", "payment_gateways", "seo", "media", "static_pages", "security", "search_analytics", "access_control"]
       }
     ];
   });
@@ -765,7 +1006,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => unsubscribe();
   }, [adminEmail, adminsList]);
 
-  // Persistent real-time synchronization of 'orders' collection ONLY when admin is logged in
+  // Persistent real-time synchronization of 'orders' & 'pre_orders' collection ONLY when admin is logged in
   useEffect(() => {
     if (!isAdminLoggedIn) {
       return;
@@ -781,8 +1022,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
 
+    const unsubscribePreOrders = subscribeToPreOrders((cloudPreOrders) => {
+      if (Array.isArray(cloudPreOrders)) {
+        setPreOrders(prev => {
+          const map = new Map<string, PreOrderRecord>();
+          prev.forEach(p => map.set(p.id, p));
+          cloudPreOrders.forEach((p: PreOrderRecord) => map.set(p.id, p));
+          const merged = Array.from(map.values()).sort((a, b) =>
+            (b.orderTimestamp || new Date(b.createdAt || 0).getTime()) -
+            (a.orderTimestamp || new Date(a.createdAt || 0).getTime())
+          );
+          currentStoreDataRef.current.preOrders = merged;
+          try {
+            localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    });
+
     return () => {
       if (unsubscribeOrders) unsubscribeOrders();
+      if (unsubscribePreOrders) unsubscribePreOrders();
     };
   }, [isAdminLoggedIn]);
 
@@ -838,6 +1099,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     categories,
     attributes,
     products,
+    preOrderProducts,
+    preOrders,
+    buyMoreOffers,
+    buyMoreVouchers,
     heroSlides,
     coupons,
     reviews,
@@ -860,6 +1125,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       categories,
       attributes,
       products,
+      preOrderProducts,
+      preOrders,
+      buyMoreOffers,
+      buyMoreVouchers,
       heroSlides,
       coupons,
       reviews,
@@ -874,7 +1143,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       wishlist,
       updatedAt: currentStoreDataRef.current.updatedAt || new Date().toISOString()
     };
-  }, [storeConfig, categories, attributes, products, heroSlides, coupons, reviews, orders, quickCategories, staticPages, adminPassword, adminEmail, adminSecretCode, adminsList, cart, wishlist]);
+  }, [storeConfig, categories, attributes, products, preOrderProducts, preOrders, buyMoreOffers, buyMoreVouchers, heroSlides, coupons, reviews, orders, quickCategories, staticPages, adminPassword, adminEmail, adminSecretCode, adminsList, cart, wishlist]);
 
   // =========================================================================
   // FIREBASE CLOUD FIRESTORE REAL-TIME SYNCHRONIZATION ENGINE
@@ -893,11 +1162,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       isStoreLoadedRef.current = true;
 
-      // Products (Accept valid product updates)
+      // Products (Accept valid product updates, ensuring v2 expansion items appear at least once)
       if (Array.isArray(cloudData.products)) {
-        setProducts(cloudData.products);
-        currentStoreDataRef.current.products = cloudData.products;
-        try { localStorage.setItem('rycreoshop_products', JSON.stringify(cloudData.products)); } catch {}
+        const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_snap_prods');
+        const newProdIds = new Set(['prod-20', 'prod-21', 'prod-22', 'prod-23', 'prod-24']);
+        const existingIds = new Set(cloudData.products.map((x: Product) => x.id));
+        const mergedProds = needSeed
+          ? [...cloudData.products, ...INITIAL_PRODUCTS.filter(i => newProdIds.has(i.id) && !existingIds.has(i.id))]
+          : cloudData.products;
+        if (needSeed) {
+          try { localStorage.setItem('rycreoshop_catalog_v2_snap_prods', 'true'); } catch {}
+        }
+        setProducts(mergedProds);
+        currentStoreDataRef.current.products = mergedProds;
+        try { localStorage.setItem('rycreoshop_products', JSON.stringify(mergedProds)); } catch {}
       }
 
       // Categories
@@ -942,16 +1220,107 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try { localStorage.setItem('rycreoshop_static_pages', JSON.stringify(cloudData.staticPages)); } catch {}
       }
 
+      // Pre-Order Products & Buy More Deals/Vouchers
+      if (Array.isArray(cloudData.preOrderProducts)) {
+        const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_snap_pre');
+        const newPreIds = new Set(['pre-prod-6', 'pre-prod-7', 'pre-prod-8', 'pre-prod-9', 'pre-prod-10', 'pre-prod-11', 'pre-prod-12', 'pre-prod-13']);
+        const existingIds = new Set(cloudData.preOrderProducts.map((x: PreOrderProduct) => x.id));
+        const mergedPre = needSeed
+          ? [...cloudData.preOrderProducts, ...INITIAL_PREORDER_PRODUCTS.filter(i => newPreIds.has(i.id) && !existingIds.has(i.id))]
+          : cloudData.preOrderProducts;
+        if (needSeed) {
+          try { localStorage.setItem('rycreoshop_catalog_v2_snap_pre', 'true'); } catch {}
+        }
+        setPreOrderProducts(mergedPre);
+        currentStoreDataRef.current.preOrderProducts = mergedPre;
+        try { localStorage.setItem('rycreoshop_preorder_products', JSON.stringify(mergedPre)); } catch {}
+      }
+      if (Array.isArray(cloudData.buyMoreOffers)) {
+        const needSeed = !localStorage.getItem('rycreoshop_catalog_v2_snap_bm');
+        const newBmIds = new Set(['bogo-5', 'bogo-6', 'bogo-7', 'bogo-8', 'bogo-9']);
+        const existingIds = new Set(cloudData.buyMoreOffers.map((x: BuyMoreOffer) => x.id));
+        const mergedBm = needSeed
+          ? [...cloudData.buyMoreOffers, ...INITIAL_BUYMORE_OFFERS.filter(i => newBmIds.has(i.id) && !existingIds.has(i.id))]
+          : cloudData.buyMoreOffers;
+        if (needSeed) {
+          try { localStorage.setItem('rycreoshop_catalog_v2_snap_bm', 'true'); } catch {}
+        }
+        setBuyMoreOffers(mergedBm);
+        currentStoreDataRef.current.buyMoreOffers = mergedBm;
+        try { localStorage.setItem('rycreoshop_buymore_offers', JSON.stringify(mergedBm)); } catch {}
+      }
+      if (Array.isArray(cloudData.buyMoreVouchers)) {
+        setBuyMoreVouchers(cloudData.buyMoreVouchers);
+        currentStoreDataRef.current.buyMoreVouchers = cloudData.buyMoreVouchers;
+        try { localStorage.setItem('rycreoshop_buymore_vouchers', JSON.stringify(cloudData.buyMoreVouchers)); } catch {}
+      }
+
       // Store Config / Settings
       if (cloudData.storeConfig && typeof cloudData.storeConfig === 'object') {
         setStoreConfig(prev => {
-          const merged = { ...prev, ...cloudData.storeConfig };
+          const incomingLayouts = cloudData.storeConfig.sectionLayouts || {};
+          const merged = {
+            ...prev,
+            ...cloudData.storeConfig,
+            sectionLayouts: {
+              ourProducts: {
+                ...INITIAL_STORE_CONFIG.sectionLayouts!.ourProducts,
+                ...(prev.sectionLayouts?.ourProducts || {}),
+                ...(incomingLayouts.ourProducts || {}),
+              },
+              preOrder: {
+                ...INITIAL_STORE_CONFIG.sectionLayouts!.preOrder,
+                ...(prev.sectionLayouts?.preOrder || {}),
+                ...(incomingLayouts.preOrder || {}),
+              },
+              buyMore: {
+                ...INITIAL_STORE_CONFIG.sectionLayouts!.buyMore,
+                ...(prev.sectionLayouts?.buyMore || {}),
+                ...(incomingLayouts.buyMore || {}),
+              },
+            },
+          };
           currentStoreDataRef.current.storeConfig = merged;
           try { localStorage.setItem('rycreoshop_store_config', JSON.stringify(merged)); } catch {}
           return merged;
         });
       }
     });
+
+    // Initial server hydrate on mount (guarantees server/disk catalog loads even if Firestore is empty or slow)
+    fetch('/api/store/data')
+      .then(res => res.ok ? res.json() : null)
+      .then(raw => {
+        const sData = raw?.data ? raw.data : raw;
+        if (!sData || typeof sData !== 'object') return;
+        isStoreLoadedRef.current = true;
+        if (Array.isArray(sData.products) && currentStoreDataRef.current.products.length === 0) {
+          setProducts(sData.products);
+          currentStoreDataRef.current.products = sData.products;
+          try { localStorage.setItem('rycreoshop_products', JSON.stringify(sData.products)); } catch {}
+        }
+        if (Array.isArray(sData.preOrderProducts) && sData.preOrderProducts.length > 0 && !localStorage.getItem('rycreoshop_preorder_products')) {
+          setPreOrderProducts(sData.preOrderProducts);
+          currentStoreDataRef.current.preOrderProducts = sData.preOrderProducts;
+        }
+        if (Array.isArray(sData.buyMoreOffers) && sData.buyMoreOffers.length > 0 && !localStorage.getItem('rycreoshop_buymore_offers')) {
+          setBuyMoreOffers(sData.buyMoreOffers);
+          currentStoreDataRef.current.buyMoreOffers = sData.buyMoreOffers;
+        }
+        if (Array.isArray(sData.buyMoreVouchers) && sData.buyMoreVouchers.length > 0 && !localStorage.getItem('rycreoshop_buymore_vouchers')) {
+          setBuyMoreVouchers(sData.buyMoreVouchers);
+          currentStoreDataRef.current.buyMoreVouchers = sData.buyMoreVouchers;
+        }
+        if (Array.isArray(sData.preOrders) && sData.preOrders.length > 0) {
+          setPreOrders(prev => {
+            const map = new Map<string, PreOrderRecord>();
+            prev.forEach(p => map.set(p.id, p));
+            sData.preOrders.forEach((p: PreOrderRecord) => map.set(p.id, p));
+            return Array.from(map.values()).sort((a, b) => (b.orderTimestamp || 0) - (a.orderTimestamp || 0));
+          });
+        }
+      })
+      .catch(() => {});
 
     return () => {
       if (unsubscribe) unsubscribe();
@@ -1040,6 +1409,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // 1. Update localStorage
     try {
       if (overrides.products !== undefined) localStorage.setItem('rycreoshop_products', JSON.stringify(overrides.products));
+      if (overrides.preOrderProducts !== undefined) localStorage.setItem('rycreoshop_preorder_products', JSON.stringify(overrides.preOrderProducts));
+      if (overrides.preOrders !== undefined) localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(overrides.preOrders));
+      if (overrides.buyMoreOffers !== undefined) localStorage.setItem('rycreoshop_buymore_offers', JSON.stringify(overrides.buyMoreOffers));
+      if (overrides.buyMoreVouchers !== undefined) localStorage.setItem('rycreoshop_buymore_vouchers', JSON.stringify(overrides.buyMoreVouchers));
       if (overrides.storeConfig) localStorage.setItem('rycreoshop_store_config', JSON.stringify(overrides.storeConfig));
       if (overrides.categories) localStorage.setItem('rycreoshop_categories', JSON.stringify(overrides.categories));
       if (overrides.attributes) localStorage.setItem('rycreoshop_attributes', JSON.stringify(overrides.attributes));
@@ -1071,7 +1444,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // 3. Real-time Firestore sync for store/data across ALL worldwide devices
     try {
-      const { orders: _skipOrders, cart: _skipCart, wishlist: _skipWish, ...syncableOverrides } = overrides;
+      const { orders: _skipOrders, preOrders: _skipPreOrders, cart: _skipCart, wishlist: _skipWish, ...syncableOverrides } = overrides;
       const firestorePayload: Record<string, any> = {
         ...syncableOverrides,
         updatedAt: fullData.updatedAt
@@ -1140,6 +1513,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // 4. store/data doc
       await saveStoreDataToFirestore({
         products: currentProds,
+        preOrderProducts: currentStoreDataRef.current.preOrderProducts,
+        buyMoreOffers: currentStoreDataRef.current.buyMoreOffers,
+        buyMoreVouchers: currentStoreDataRef.current.buyMoreVouchers,
         categories: currentCats,
         storeConfig: currentCfg,
         heroSlides: currentStoreDataRef.current.heroSlides,
@@ -1243,6 +1619,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     color?: string, 
     variation?: ProductVariation
   ) => {
+    const safeReqQty = Math.max(1, Number(quantity) || 1);
+    const maxAvail = variation
+      ? Math.max(0, Number(variation.stock) || 0)
+      : getVariationStockForSelection(product, color, size);
+    const enforceStock = !product.isBuyMoreOffer && (product.trackStock !== false || (product.variations?.length || 0) > 0 || (product.sizes?.length || 0) > 0 || (product.colors?.some(c => c.stock !== undefined) ?? false));
+
     setCart(prev => {
       const effectivePrice = variation ? (variation.salePrice || variation.price) : (product.salePrice > 0 ? product.salePrice : product.price);
       const varId = variation?.id;
@@ -1250,26 +1632,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const existingIndex = prev.findIndex(item => {
         if (varId && item.selectedVariation?.id === varId) return true;
         if (size && item.selectedSize === size && (!color || item.selectedColor === color) && item.productId === product.id) return true;
-        return item.productId === product.id && !size && !item.selectedSize;
+        if (!size && !item.selectedSize && color && item.selectedColor === color && item.productId === product.id) return true;
+        return item.productId === product.id && !size && !item.selectedSize && !color && !item.selectedColor;
       });
+
+      if (enforceStock && maxAvail <= 0) {
+        return prev;
+      }
 
       if (existingIndex > -1) {
         const updated = [...prev];
-        updated[existingIndex].quantity += quantity;
+        const nextQty = updated[existingIndex].quantity + safeReqQty;
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: enforceStock ? Math.min(maxAvail, nextQty) : nextQty,
+        };
         return updated;
       } else {
+        const finalQty = enforceStock ? Math.min(maxAvail, safeReqQty) : safeReqQty;
+        if (finalQty <= 0) return prev;
         return [...prev, {
           productId: product.id,
           product,
           selectedSize: size,
           selectedColor: color,
           selectedVariation: variation,
-          quantity,
+          quantity: finalQty,
           price: effectivePrice
         }];
       }
     });
-    // setIsCartOpen(true);
   };
 
   const removeFromCart = (productId: string, size?: string, color?: string, variationId?: string) => {
@@ -1290,7 +1682,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ? item.selectedVariation?.id === variationId 
         : (item.productId === productId && (!size || item.selectedSize === size) && (!color || item.selectedColor === color));
       if (isMatch) {
-        return { ...item, quantity };
+        const liveProd = products.find(p => p.id === item.productId) || item.product;
+        const enforceStock = !liveProd.isBuyMoreOffer && (liveProd.trackStock !== false || (liveProd.variations?.length || 0) > 0 || (liveProd.sizes?.length || 0) > 0 || (liveProd.colors?.some(c => c.stock !== undefined) ?? false));
+        const maxAvail = getVariationStockForSelection(liveProd, item.selectedColor, item.selectedSize);
+        const clampedQty = enforceStock && maxAvail >= 0 ? Math.min(maxAvail, quantity) : quantity;
+        return { ...item, quantity: Math.max(1, clampedQty) };
       }
       return item;
     }));
@@ -1329,6 +1725,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const found = coupons.find(c => c.code.toUpperCase() === cleanCode);
 
     if (!found) {
+      // Check Buy More Vouchers as well
+      const bmv = buyMoreVouchers.find(v => v.isVisible !== false && v.code.toUpperCase() === cleanCode);
+      if (bmv) {
+        if (bmv.expiryDate && new Date(bmv.expiryDate) < new Date()) {
+          return { valid: false, discount: 0, message: "This offer voucher has expired" };
+        }
+        const pct = Number(bmv.discountPercent) || 0;
+        const calculatedDiscount = pct > 0 ? Math.round((cartSubtotal * pct) / 100) : 0;
+        return {
+          valid: true,
+          discount: Math.min(calculatedDiscount, cartSubtotal),
+          isFreeDelivery: false,
+          message: `Offer Voucher ${bmv.code} applied! Bonus: ${bmv.freeProductNote}`
+        };
+      }
       return { valid: false, discount: 0, message: "Invalid coupon code" };
     }
     if (!found.active) {
@@ -1396,6 +1807,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return uniqueCode;
     };
 
+    const hasPreOrderItems = orderData.items.some(
+      it => it.isPreOrder || it.product?.isPreOrder || it.product?.availability === 'preorder'
+    );
+
     const orderNum = generateUniqueOrderNumber();
     const now = new Date();
     const newOrder: Order = {
@@ -1406,7 +1821,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: now.toISOString(),
       orderTimestamp: now.getTime(),
       orderTimeFormatted: formatBangladeshDateTime(now.toISOString()),
-      isSeen: false
+      isSeen: false,
+      hasPreOrderItems
     };
 
     addOrderToFirestore(newOrder).catch(err => {
@@ -1461,8 +1877,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           if (orderItem.selectedColor && p.colors) {
             p.colors = p.colors.map(c => 
-              c.name === orderItem.selectedColor && c.stock !== undefined
-                ? { ...c, stock: Math.max(0, c.stock - orderItem.quantity) }
+              c.name.toLowerCase() === orderItem.selectedColor!.toLowerCase() && c.stock !== undefined
+                ? { ...c, stock: Math.max(0, c.stock - orderItem.quantity), inStock: Math.max(0, c.stock - orderItem.quantity) > 0 }
                 : c
             );
           }
@@ -1473,22 +1889,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           p.soldCount = baseCount + p.realSalesCount;
         });
 
+        const hasRealSizes = Array.isArray(p.sizes) && p.sizes.some(s => s.size && s.size.toLowerCase() !== 'standard' && s.size.toLowerCase() !== 'standard / free size');
+        const hasColorStocks = Array.isArray(p.colors) && p.colors.length > 0 && p.colors.some(c => c.stock !== undefined);
+
         if (p.variations && p.variations.length > 0) {
-          p.stock = p.variations.reduce((sum, v) => sum + (v.stock || 0), 0);
-        } else if (p.sizes && p.sizes.length > 0) {
-          p.stock = p.sizes.reduce((sum, s) => sum + (s.stock || 0), 0);
+          p.stock = p.variations.reduce((sum, v) => sum + Math.max(0, v.stock || 0), 0);
+        } else if (hasRealSizes && p.sizes) {
+          p.stock = p.sizes.reduce((sum, s) => sum + Math.max(0, s.stock || 0), 0);
+        } else if (hasColorStocks && p.colors) {
+          p.stock = p.colors.filter(c => c.enabled !== false).reduce((sum, c) => sum + Math.max(0, Number(c.stock ?? 0) || 0), 0);
         } else {
           const totalOrderedQty = matchedItems.reduce((sum, it) => sum + it.quantity, 0);
           p.stock = Math.max(0, (p.stock || 0) - totalOrderedQty);
-        }
-
-        // Synchronize color stock for standard products
-        if ((!p.variations || p.variations.length === 0) && p.colors && p.colors.length > 0) {
-          p.colors = p.colors.map(c => ({
-            ...c,
-            stock: p.stock,
-            inStock: p.stock > 0
-          }));
+          if (p.colors && p.colors.length > 0) {
+            p.colors = p.colors.map(c => ({
+              ...c,
+              stock: p.stock,
+              inStock: p.stock > 0
+            }));
+          }
         }
 
         return p;
@@ -1496,6 +1915,67 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedProductsList = updated;
       return updated;
     });
+
+    // Deduct quota/variant stock & increment booked count on preOrderProducts if any item matches
+    let updatedPreOrderProductsList: PreOrderProduct[] = [];
+    const hasMatchedPreProd = orderData.items.some(it =>
+      currentStoreDataRef.current.preOrderProducts.some(pp => pp.id === it.productId)
+    );
+    if (hasMatchedPreProd) {
+      updatedPreOrderProductsList = currentStoreDataRef.current.preOrderProducts.map(pp => {
+        const matchedItems = orderData.items.filter(it => it.productId === pp.id);
+        if (matchedItems.length === 0) return pp;
+        let nextPp = { ...pp };
+        let totalBookedAdded = 0;
+
+        matchedItems.forEach(orderItem => {
+          totalBookedAdded += orderItem.quantity;
+          if (nextPp.variations && nextPp.variations.length > 0) {
+            nextPp.variations = nextPp.variations.map(v => {
+              const isMatchById = orderItem.selectedVariation && v.id === orderItem.selectedVariation.id;
+              const vCol = getVariationColor(v.combination);
+              const vSz = getVariationSize(v.combination);
+              const colMatch = !orderItem.selectedColor || !vCol || vCol.toLowerCase() === orderItem.selectedColor.toLowerCase();
+              const szMatch = !orderItem.selectedSize || !vSz || vSz.toLowerCase() === orderItem.selectedSize.toLowerCase();
+              if (isMatchById || (colMatch && szMatch)) {
+                const nextStock = Math.max(0, (v.stock || 0) - orderItem.quantity);
+                return { ...v, stock: nextStock, inStock: nextStock > 0 };
+              }
+              return v;
+            });
+          }
+          if (orderItem.selectedSize && Array.isArray(nextPp.sizes)) {
+            nextPp.sizes = nextPp.sizes.map(s => {
+              if (typeof s === 'string') return s;
+              if (s.size.toLowerCase() === orderItem.selectedSize!.toLowerCase()) {
+                return { ...s, stock: Math.max(0, (s.stock || 0) - orderItem.quantity) };
+              }
+              return s;
+            });
+          }
+          if (orderItem.selectedColor && Array.isArray(nextPp.colors)) {
+            nextPp.colors = nextPp.colors.map(c => {
+              if (typeof c === 'string') return c;
+              if (c.name.toLowerCase() === orderItem.selectedColor!.toLowerCase() && c.stock !== undefined) {
+                const nextC = Math.max(0, c.stock - orderItem.quantity);
+                return { ...c, stock: nextC, inStock: nextC > 0 };
+              }
+              return c;
+            });
+          }
+        });
+
+        nextPp.preOrderBookedCount = (nextPp.preOrderBookedCount || 0) + totalBookedAdded;
+        if ((nextPp.variations?.length || 0) > 0 || (nextPp.sizes?.some(s => typeof s !== 'string') ?? false) || (nextPp.colors?.some(c => typeof c !== 'string' && c.stock !== undefined) ?? false)) {
+          nextPp.stock = computeAutoTotalStock(nextPp);
+        } else if (nextPp.stock !== undefined) {
+          nextPp.stock = Math.max(0, (nextPp.stock || 0) - totalBookedAdded);
+        }
+        return nextPp;
+      });
+      setPreOrderProducts(updatedPreOrderProductsList);
+      currentStoreDataRef.current.preOrderProducts = updatedPreOrderProductsList;
+    }
 
     const nextOrders = [newOrder, ...currentStoreDataRef.current.orders];
     setOrders(nextOrders);
@@ -1516,7 +1996,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     persistToDatabase({
-      products: updatedProductsList.length > 0 ? updatedProductsList : currentStoreDataRef.current.products
+      products: updatedProductsList.length > 0 ? updatedProductsList : currentStoreDataRef.current.products,
+      ...(updatedPreOrderProductsList.length > 0 ? { preOrderProducts: updatedPreOrderProductsList } : {})
     });
 
     try {
@@ -1529,6 +2010,79 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }));
     } catch (e) {
       console.warn("Local storage cache notice:", e);
+    }
+
+    // Auto-record Pre-Order bookings for Admin Pre-Order Management
+    const preOrderItemsInOrder = orderData.items.filter(
+      it => it.isPreOrder || it.product?.isPreOrder || it.product?.availability === 'preorder'
+    );
+    if (preOrderItemsInOrder.length > 0) {
+      const createdPreRecords: PreOrderRecord[] = preOrderItemsInOrder.map((it, idx) => {
+        const lineTotal = it.price * it.quantity;
+        const advType = it.preOrderAdvanceType || it.product?.preOrderAdvanceType || 'fixed';
+        const advVal = it.preOrderAdvanceValue ?? it.product?.preOrderAdvanceValue ?? 0;
+        let computedAdv = 0;
+        if (advVal > 0) {
+          computedAdv = advType === 'percent'
+            ? Math.round((lineTotal * Math.min(100, advVal)) / 100)
+            : Math.min(lineTotal, advVal * it.quantity);
+        } else if (orderData.advancePaymentAmount && orderData.advancePaymentAmount > 0) {
+          computedAdv = Math.min(lineTotal, orderData.advancePaymentAmount);
+        } else {
+          computedAdv = lineTotal;
+        }
+        const dueAmt = Math.max(0, lineTotal - computedAdv);
+        const matchedPreProd = currentStoreDataRef.current.preOrderProducts.find(p => p.id === it.productId);
+        return {
+          id: `pre-ord-${Date.now()}-${idx}`,
+          preOrderNumber: `PRE-${orderNum.slice(0, 6)}${preOrderItemsInOrder.length > 1 ? `-${idx + 1}` : ''}`,
+          productId: it.productId,
+          productTitle: it.product.title,
+          productImage: it.product.images?.[0] || '',
+          unitPrice: it.price,
+          quantity: it.quantity,
+          totalAmount: lineTotal,
+          advancePaidAmount: computedAdv,
+          dueAmount: dueAmt,
+          paymentMethod: orderData.paymentMethod,
+          paymentTrxId: orderData.paymentTrxId,
+          senderPhone: orderData.senderPhone,
+          linkedOrderNumber: orderNum,
+          selectedColor: it.selectedColor,
+          selectedSize: it.selectedSize,
+          weWillGetText: it.product.weWillGetText || matchedPreProd?.weWillGetText,
+          youWillGetText: it.product.youWillGetText || matchedPreProd?.youWillGetText,
+          customerName: orderData.customerName,
+          phone: orderData.phone,
+          altPhone: orderData.altPhone,
+          division: orderData.division,
+          district: orderData.district,
+          upazila: orderData.upazila,
+          address: orderData.address,
+          cityRegion: orderData.cityRegion,
+          notes: orderData.notes,
+          status: 'Pending',
+          isSeen: false,
+          createdAt: now.toISOString(),
+          orderTimestamp: now.getTime(),
+          orderTimeFormatted: formatBangladeshDateTime(now.toISOString()),
+        };
+      });
+
+      const nextPreOrders = [...createdPreRecords, ...currentStoreDataRef.current.preOrders];
+      setPreOrders(nextPreOrders);
+      currentStoreDataRef.current.preOrders = nextPreOrders;
+      try {
+        localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(nextPreOrders));
+      } catch {}
+      createdPreRecords.forEach(rec => {
+        fetch('/api/store/pre-orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rec)
+        }).catch(() => {});
+        addPreOrderToFirestore(rec).catch(console.warn);
+      });
     }
 
     try {
@@ -1963,6 +2517,554 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updateProductInAdminService(p).catch(() => {});
     });
   };
+
+  // =========================================================================
+  // PRE-ORDER PRODUCTS & PRE-ORDER MANAGEMENT CRUD
+  // =========================================================================
+  const addPreOrderProduct = async (itemData: Omit<PreOrderProduct, 'id' | 'createdAt'>): Promise<boolean> => {
+    const newItem: PreOrderProduct = {
+      ...itemData,
+      id: `pre-prod-${Date.now()}`,
+      position: itemData.position ?? 1,
+      createdAt: new Date().toISOString()
+    };
+    const nextList = [newItem, ...currentStoreDataRef.current.preOrderProducts];
+    setPreOrderProducts(nextList);
+    currentStoreDataRef.current.preOrderProducts = nextList;
+    await persistToDatabase({ preOrderProducts: nextList });
+    return true;
+  };
+
+  const updatePreOrderProduct = async (updatedItem: PreOrderProduct): Promise<boolean> => {
+    const nextList = currentStoreDataRef.current.preOrderProducts.map(p =>
+      p.id === updatedItem.id ? updatedItem : p
+    );
+    setPreOrderProducts(nextList);
+    currentStoreDataRef.current.preOrderProducts = nextList;
+    if (selectedPreOrderProduct?.id === updatedItem.id) {
+      setSelectedPreOrderProduct(updatedItem);
+    }
+    await persistToDatabase({ preOrderProducts: nextList });
+    return true;
+  };
+
+  const deletePreOrderProduct = async (id: string): Promise<boolean> => {
+    const nextList = currentStoreDataRef.current.preOrderProducts.filter(p => p.id !== id);
+    setPreOrderProducts(nextList);
+    currentStoreDataRef.current.preOrderProducts = nextList;
+    if (selectedPreOrderProduct?.id === id) {
+      setSelectedPreOrderProduct(null);
+    }
+    await persistToDatabase({ preOrderProducts: nextList });
+    return true;
+  };
+
+  const movePreOrderProduct = (id: string, direction: 'up' | 'down') => {
+    const list = [...currentStoreDataRef.current.preOrderProducts].sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+    const idx = list.findIndex(p => p.id === id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+    const temp = list[idx];
+    list[idx] = list[targetIdx];
+    list[targetIdx] = temp;
+    const ordered = list.map((p, i) => ({ ...p, position: i + 1 }));
+    setPreOrderProducts(ordered);
+    currentStoreDataRef.current.preOrderProducts = ordered;
+    persistToDatabase({ preOrderProducts: ordered }).catch(console.warn);
+  };
+
+  const placePreOrder = async (
+    recordData: Omit<PreOrderRecord, 'id' | 'preOrderNumber' | 'createdAt' | 'status'>
+  ): Promise<PreOrderRecord> => {
+    const now = new Date();
+    const randomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newRecord: PreOrderRecord = {
+      ...recordData,
+      id: `pre-ord-${Date.now()}`,
+      preOrderNumber: `PRE-${now.getFullYear().toString().slice(-2)}${randomCode}`,
+      status: 'Pending',
+      isSeen: false,
+      createdAt: now.toISOString(),
+      orderTimestamp: now.getTime(),
+      orderTimeFormatted: formatBangladeshDateTime(now.toISOString())
+    };
+    const nextPreOrders = [newRecord, ...currentStoreDataRef.current.preOrders];
+    setPreOrders(nextPreOrders);
+    currentStoreDataRef.current.preOrders = nextPreOrders;
+
+    // Deduct pre-order product quota & variant stock
+    if (recordData.productId) {
+      const updatedPreList = currentStoreDataRef.current.preOrderProducts.map(pp => {
+        if (pp.id !== recordData.productId) return pp;
+        let nextPp = { ...pp };
+        if (nextPp.variations && nextPp.variations.length > 0) {
+          nextPp.variations = nextPp.variations.map(v => {
+            const vCol = getVariationColor(v.combination);
+            const vSz = getVariationSize(v.combination);
+            const colMatch = !recordData.selectedColor || !vCol || vCol.toLowerCase() === recordData.selectedColor.toLowerCase();
+            const szMatch = !recordData.selectedSize || !vSz || vSz.toLowerCase() === recordData.selectedSize.toLowerCase();
+            if (colMatch && szMatch) {
+              const ns = Math.max(0, (v.stock || 0) - recordData.quantity);
+              return { ...v, stock: ns, inStock: ns > 0 };
+            }
+            return v;
+          });
+        }
+        if (recordData.selectedSize && Array.isArray(nextPp.sizes)) {
+          nextPp.sizes = nextPp.sizes.map(s =>
+            typeof s !== 'string' && s.size.toLowerCase() === recordData.selectedSize!.toLowerCase()
+              ? { ...s, stock: Math.max(0, (s.stock || 0) - recordData.quantity) }
+              : s
+          );
+        }
+        if (recordData.selectedColor && Array.isArray(nextPp.colors)) {
+          nextPp.colors = nextPp.colors.map(c =>
+            typeof c !== 'string' && c.name.toLowerCase() === recordData.selectedColor!.toLowerCase() && c.stock !== undefined
+              ? { ...c, stock: Math.max(0, c.stock - recordData.quantity), inStock: Math.max(0, c.stock - recordData.quantity) > 0 }
+              : c
+          );
+        }
+        nextPp.preOrderBookedCount = (nextPp.preOrderBookedCount || 0) + recordData.quantity;
+        if ((nextPp.variations?.length || 0) > 0 || (nextPp.sizes?.some(s => typeof s !== 'string') ?? false) || (nextPp.colors?.some(c => typeof c !== 'string' && c.stock !== undefined) ?? false)) {
+          nextPp.stock = computeAutoTotalStock(nextPp);
+        } else if (nextPp.stock !== undefined) {
+          nextPp.stock = Math.max(0, (nextPp.stock || 0) - recordData.quantity);
+        }
+        return nextPp;
+      });
+      setPreOrderProducts(updatedPreList);
+      currentStoreDataRef.current.preOrderProducts = updatedPreList;
+      persistToDatabase({ preOrderProducts: updatedPreList }).catch(console.warn);
+    }
+
+    try {
+      localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(nextPreOrders));
+    } catch {}
+    fetch('/api/store/pre-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newRecord)
+    }).catch(() => {});
+    addPreOrderToFirestore(newRecord).catch(console.warn);
+    try {
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+    } catch {}
+    return newRecord;
+  };
+
+  const updatePreOrderStatus = (id: string, status: PreOrderRecord['status']) => {
+    const target = currentStoreDataRef.current.preOrders.find(o => o.id === id);
+    const nextList = currentStoreDataRef.current.preOrders.map(o =>
+      o.id === id ? { ...o, status } : o
+    );
+    setPreOrders(nextList);
+    currentStoreDataRef.current.preOrders = nextList;
+    try {
+      localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(nextList));
+    } catch {}
+    if (target) {
+      fetch('/api/store/pre-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...target, status })
+      }).catch(() => {});
+    }
+    updatePreOrderInFirestore(id, { status }).catch(console.warn);
+  };
+
+  const togglePreOrderSeen = (id: string) => {
+    const target = currentStoreDataRef.current.preOrders.find(o => o.id === id);
+    const nextSeen = !(target?.isSeen);
+    const nextList = currentStoreDataRef.current.preOrders.map(o =>
+      o.id === id ? { ...o, isSeen: nextSeen } : o
+    );
+    setPreOrders(nextList);
+    currentStoreDataRef.current.preOrders = nextList;
+    try {
+      localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(nextList));
+    } catch {}
+    if (target) {
+      fetch('/api/store/pre-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...target, isSeen: nextSeen })
+      }).catch(() => {});
+    }
+    updatePreOrderInFirestore(id, { isSeen: nextSeen }).catch(console.warn);
+  };
+
+  const deletePreOrder = (id: string): boolean => {
+    const nextList = currentStoreDataRef.current.preOrders.filter(o => o.id !== id);
+    setPreOrders(nextList);
+    currentStoreDataRef.current.preOrders = nextList;
+    try {
+      localStorage.setItem('rycreoshop_pre_orders', JSON.stringify(nextList));
+    } catch {}
+    fetch(`/api/store/pre-orders/${id}`, { method: 'DELETE' }).catch(() => {});
+    deletePreOrderFromFirestore(id).catch(console.warn);
+    return true;
+  };
+
+  const preOrderProductToCartItem = useCallback((
+    item: PreOrderProduct,
+    size?: string,
+    quantity: number = 1,
+    color?: string,
+    variation?: ProductVariation
+  ): CartItem => {
+    const basePrice = Number(item.salePrice) > 0 ? Number(item.salePrice) : (Number(item.price) || 0);
+    const unitPrice = variation
+      ? (Number(variation.salePrice) > 0 ? Number(variation.salePrice) : (Number(variation.price) || basePrice))
+      : basePrice;
+    const advType: 'fixed' | 'percent' = item.advanceType || 'fixed';
+    const advValue: number = item.advanceValue !== undefined
+      ? Number(item.advanceValue) || 0
+      : (item.advanceAmount !== undefined ? Number(item.advanceAmount) || 0 : 0);
+
+    const normalizedColors = (item.colors || [])
+      .map(c =>
+        typeof c === 'string'
+          ? { name: c.trim(), hex: '#1E293B', enabled: true, inStock: true, stock: 99 }
+          : { ...c, name: (c?.name || '').trim(), enabled: c?.enabled !== false, inStock: true, stock: c?.stock ?? 99 }
+      )
+      .filter(c => Boolean(c.name) && c.enabled !== false);
+    const normalizedSizes = (item.sizes || [])
+      .map(s =>
+        typeof s === 'string'
+          ? { size: s.trim(), stock: 99 }
+          : { size: (s?.size || '').trim(), stock: s?.stock ?? 99 }
+      )
+      .filter(s => Boolean(s.size) && s.size.toLowerCase() !== 'standard' && s.size.toLowerCase() !== 'standard / free size');
+
+    const safeColor = color && color !== 'default' ? color : undefined;
+    const safeSize = size && size !== 'default' && size !== 'Standard / Free Size' ? size : undefined;
+
+    const syntheticProduct: Product = {
+      id: item.id,
+      title: item.title,
+      slug: item.slug || `preorder-${item.id}`,
+      productCode: item.productCode,
+      tagline: item.tagline,
+      category: item.category || 'Pre-Order',
+      price: Number(item.price) || basePrice,
+      salePrice: Number(item.salePrice) || 0,
+      rating: 5,
+      reviewCount: 0,
+      images: Array.isArray(item.images) ? item.images.filter(Boolean) : [],
+      videoUrl: item.videoUrl,
+      sizes: normalizedSizes,
+      colors: item.hasColorVariants === false ? [] : normalizedColors,
+      variations: item.variations,
+      hasColorVariants: item.hasColorVariants,
+      description: item.description || '',
+      shippingWeight: item.shippingWeight,
+      shippingDimensions: item.shippingDimensions,
+      isFreeShipping: item.isFreeShipping,
+      seoTitle: item.seoTitle,
+      seoDescription: item.seoDescription,
+      keywords: item.keywords,
+      stock: (() => {
+        const q = getPreOrderQuotaStatus(item);
+        return q.tracksQuota ? q.remaining : (item.stock ?? 999);
+      })(),
+      trackStock: getPreOrderQuotaStatus(item).tracksQuota,
+      availability: 'preorder',
+      isPreOrder: true,
+      preOrderDays: 20,
+      preOrderAdvanceType: advType,
+      preOrderAdvanceValue: advValue,
+      weWillGetText: item.weWillGetText,
+      youWillGetText: item.youWillGetText,
+      createdAt: item.createdAt
+    };
+
+    return {
+      productId: item.id,
+      product: syntheticProduct,
+      selectedSize: safeSize,
+      selectedColor: safeColor,
+      selectedVariation: variation,
+      quantity: Math.max(1, Number(quantity) || 1),
+      price: unitPrice,
+      isPreOrder: true,
+      preOrderDays: 20,
+      preOrderAdvanceType: advType,
+      preOrderAdvanceValue: advValue,
+    };
+  }, []);
+
+  const addPreOrderToCart = useCallback((
+    item: PreOrderProduct,
+    size?: string,
+    quantity: number = 1,
+    color?: string,
+    variation?: ProductVariation
+  ): CartItem => {
+    const cartItem = preOrderProductToCartItem(item, size, quantity, color, variation);
+    const quota = getPreOrderQuotaStatus(item);
+    const maxAvail = variation
+      ? Math.max(0, Number(variation.stock) || 0)
+      : quota.tracksQuota
+        ? getVariationStockForSelection(cartItem.product, color, size)
+        : 999;
+
+    setCart(prev => {
+      if (quota.tracksQuota && maxAvail <= 0) return prev;
+      const existingIndex = prev.findIndex(ci =>
+        ci.productId === cartItem.productId &&
+        (ci.selectedSize || '') === (size || '') &&
+        (ci.selectedColor || '') === (color || '')
+      );
+      if (existingIndex > -1) {
+        const next = [...prev];
+        const combined = next[existingIndex].quantity + quantity;
+        next[existingIndex] = {
+          ...next[existingIndex],
+          quantity: quota.tracksQuota ? Math.min(maxAvail, combined) : combined
+        };
+        return next;
+      }
+      return [...prev, { ...cartItem, quantity: quota.tracksQuota ? Math.min(maxAvail, quantity) : quantity }];
+    });
+    return cartItem;
+  }, [preOrderProductToCartItem]);
+
+  const modifyPreOrder = useCallback(async (
+    orderId: string,
+    phone: string,
+    items: CartItem[]
+  ): Promise<{ success: boolean; message: string }> => {
+    const targetOrder = currentStoreDataRef.current.orders.find(o => o.id === orderId);
+    if (!targetOrder) return { success: false, message: 'Order not found.' };
+    if ((targetOrder.phone || '').replace(/\D/g, '') !== (phone || '').replace(/\D/g, '')) {
+      return { success: false, message: 'Phone number verification failed.' };
+    }
+    const newSubtotal = items.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    const newTotalAmount = Math.max(0, newSubtotal + (Number(targetOrder.deliveryFee) || 0) - (Number(targetOrder.discount) || 0));
+    const updates: Partial<Order> = {
+      items,
+      subtotal: newSubtotal,
+      totalAmount: newTotalAmount,
+      isModified: true
+    };
+    const nextOrders = currentStoreDataRef.current.orders.map(o =>
+      o.id === orderId ? { ...o, ...updates } : o
+    );
+    setOrders(nextOrders);
+    persistToDatabase({ orders: nextOrders }).catch(console.warn);
+    updateOrderInFirestore(orderId, updates, targetOrder.orderNumber).catch(console.warn);
+    return { success: true, message: 'Pre-order updated successfully.' };
+  }, []);
+
+  const cancelPreOrder = useCallback(async (
+    orderId: string,
+    phone: string,
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const targetOrder = currentStoreDataRef.current.orders.find(o => o.id === orderId);
+    if (!targetOrder) return { success: false, message: 'Order not found.' };
+    if ((targetOrder.phone || '').replace(/\D/g, '') !== (phone || '').replace(/\D/g, '')) {
+      return { success: false, message: 'Phone number verification failed.' };
+    }
+    const updates: Partial<Order> = {
+      status: 'Canceled',
+      canceledByCustomer: true,
+      cancelReason: reason || 'Customer cancelled pre-order'
+    };
+    const nextOrders = currentStoreDataRef.current.orders.map(o =>
+      o.id === orderId ? { ...o, ...updates } : o
+    );
+    setOrders(nextOrders);
+    persistToDatabase({ orders: nextOrders }).catch(console.warn);
+    updateOrderInFirestore(orderId, updates, targetOrder.orderNumber).catch(console.warn);
+
+    // Sync any linked preOrders status too
+    const nextPre = currentStoreDataRef.current.preOrders.map(po =>
+      po.linkedOrderNumber === targetOrder.orderNumber ? { ...po, status: 'Canceled' as const } : po
+    );
+    setPreOrders(nextPre);
+    currentStoreDataRef.current.preOrders = nextPre;
+    nextPre.filter(po => po.linkedOrderNumber === targetOrder.orderNumber).forEach(po => {
+      updatePreOrderInFirestore(po.id, { status: 'Canceled' }).catch(console.warn);
+    });
+    return { success: true, message: 'Pre-order canceled.' };
+  }, []);
+
+  // =========================================================================
+  // BUY ONE GET MORE OFFERS & OFFER VOUCHERS CRUD + CART HELPER
+  // =========================================================================
+  const addBuyMoreOffer = async (offerData: Omit<BuyMoreOffer, 'id' | 'createdAt'>): Promise<boolean> => {
+    const newOffer: BuyMoreOffer = {
+      ...offerData,
+      id: `bogo-${Date.now()}`,
+      position: offerData.position ?? 1,
+      createdAt: new Date().toISOString()
+    };
+    const nextList = [newOffer, ...currentStoreDataRef.current.buyMoreOffers];
+    setBuyMoreOffers(nextList);
+    currentStoreDataRef.current.buyMoreOffers = nextList;
+    await persistToDatabase({ buyMoreOffers: nextList });
+    return true;
+  };
+
+  const updateBuyMoreOffer = async (updatedOffer: BuyMoreOffer): Promise<boolean> => {
+    const nextList = currentStoreDataRef.current.buyMoreOffers.map(o =>
+      o.id === updatedOffer.id ? updatedOffer : o
+    );
+    setBuyMoreOffers(nextList);
+    currentStoreDataRef.current.buyMoreOffers = nextList;
+    if (selectedBuyMoreOffer?.id === updatedOffer.id) {
+      setSelectedBuyMoreOffer(updatedOffer);
+    }
+    await persistToDatabase({ buyMoreOffers: nextList });
+    return true;
+  };
+
+  const deleteBuyMoreOffer = async (id: string): Promise<boolean> => {
+    const nextList = currentStoreDataRef.current.buyMoreOffers.filter(o => o.id !== id);
+    setBuyMoreOffers(nextList);
+    currentStoreDataRef.current.buyMoreOffers = nextList;
+    if (selectedBuyMoreOffer?.id === id) {
+      setSelectedBuyMoreOffer(null);
+    }
+    await persistToDatabase({ buyMoreOffers: nextList });
+    return true;
+  };
+
+  const addBuyMoreVoucher = async (voucherData: Omit<BuyMoreVoucher, 'id' | 'createdAt'>): Promise<boolean> => {
+    const newVoucher: BuyMoreVoucher = {
+      ...voucherData,
+      code: voucherData.code.trim().toUpperCase(),
+      id: `bmv-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    };
+    const nextList = [newVoucher, ...currentStoreDataRef.current.buyMoreVouchers];
+    setBuyMoreVouchers(nextList);
+    currentStoreDataRef.current.buyMoreVouchers = nextList;
+    await persistToDatabase({ buyMoreVouchers: nextList });
+    return true;
+  };
+
+  const updateBuyMoreVoucher = async (updatedVoucher: BuyMoreVoucher): Promise<boolean> => {
+    const normalized: BuyMoreVoucher = {
+      ...updatedVoucher,
+      code: updatedVoucher.code.trim().toUpperCase()
+    };
+    const nextList = currentStoreDataRef.current.buyMoreVouchers.map(v =>
+      v.id === normalized.id ? normalized : v
+    );
+    setBuyMoreVouchers(nextList);
+    currentStoreDataRef.current.buyMoreVouchers = nextList;
+    await persistToDatabase({ buyMoreVouchers: nextList });
+    return true;
+  };
+
+  const deleteBuyMoreVoucher = async (id: string): Promise<boolean> => {
+    const nextList = currentStoreDataRef.current.buyMoreVouchers.filter(v => v.id !== id);
+    setBuyMoreVouchers(nextList);
+    currentStoreDataRef.current.buyMoreVouchers = nextList;
+    await persistToDatabase({ buyMoreVouchers: nextList });
+    return true;
+  };
+
+  const buyMoreOfferToCartItem = useCallback((offer: BuyMoreOffer, quantity: number = 1, size?: string, color?: string): CartItem => {
+    const freeSummary = (offer.freeItems || [])
+      .map(fi => `${fi.quantity}x ${fi.title}`)
+      .join(' + ');
+
+    const normalizedColors = (offer.colors || [])
+      .map((raw) => {
+        const c = raw as unknown;
+        if (typeof c === 'string') {
+          return { name: c.trim(), hex: '#1E293B', enabled: true, inStock: true, stock: 99 };
+        }
+        const obj = (c || {}) as ProductColorVariant;
+        return {
+          ...obj,
+          name: (obj.name || '').trim(),
+          enabled: obj.enabled !== false,
+          inStock: true,
+          stock: obj.stock ?? 99,
+        };
+      })
+      .filter((c) => Boolean(c.name) && c.enabled !== false);
+
+    const normalizedSizes = (offer.sizes || [])
+      .map((raw) => {
+        const s = raw as unknown;
+        if (typeof s === 'string') {
+          return { size: s.trim(), stock: 99 };
+        }
+        const obj = (s || {}) as { size?: string; stock?: number };
+        return { size: (obj.size || '').trim(), stock: obj.stock ?? 99 };
+      })
+      .filter(
+        (s) =>
+          Boolean(s.size) &&
+          s.size.toLowerCase() !== 'standard' &&
+          s.size.toLowerCase() !== 'standard / free size'
+      );
+
+    const safePrice = Number(offer.price) || 0;
+    const safeRegular = Number(offer.regularValue) || safePrice;
+    const safeColor = color && color !== 'default' ? color : undefined;
+    const safeSize = size && size !== 'default' && size !== 'Standard / Free Size' ? size : undefined;
+
+    const syntheticProduct: Product = {
+      id: `offer-${offer.id}`,
+      title: `${offer.mainProductTitle || offer.title}${freeSummary ? ` + FREE: ${freeSummary}` : ''}`,
+      slug: offer.slug || `offer-${offer.id}`,
+      productCode: offer.productCode,
+      category: 'Buy One Get More',
+      price: safeRegular,
+      salePrice: safePrice,
+      rating: 5,
+      reviewCount: 0,
+      images: [offer.mainProductImage, ...(offer.images || [])].filter(Boolean),
+      videoUrl: offer.videoUrl,
+      sizes: normalizedSizes,
+      colors: normalizedColors,
+      hasColorVariants: normalizedColors.length > 0,
+      description: offer.description || '',
+      isFreeShipping: offer.isFreeShipping,
+      seoTitle: offer.seoTitle,
+      seoDescription: offer.seoDescription,
+      keywords: offer.keywords,
+      isBuyMoreOffer: true,
+      stock: 999,
+      trackStock: false,
+      createdAt: offer.createdAt
+    };
+
+    return {
+      productId: syntheticProduct.id,
+      product: syntheticProduct,
+      selectedSize: safeSize,
+      selectedColor: safeColor,
+      quantity: Math.max(1, Number(quantity) || 1),
+      price: safePrice,
+      isBuyMoreOffer: true
+    };
+  }, []);
+
+  const addBuyMoreOfferToCart = useCallback((offer: BuyMoreOffer, quantity: number = 1, size?: string, color?: string): CartItem => {
+    const cartItem = buyMoreOfferToCartItem(offer, quantity, size, color);
+    setCart(prev => {
+      const idx = prev.findIndex(i =>
+        i.productId === cartItem.productId &&
+        (i.selectedSize || '') === (cartItem.selectedSize || '') &&
+        (i.selectedColor || '') === (cartItem.selectedColor || '')
+      );
+      if (idx > -1) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + quantity };
+        return next;
+      }
+      return [...prev, cartItem];
+    });
+    return cartItem;
+  }, [buyMoreOfferToCartItem]);
 
   // Category CRUD
   const addCategory = (catData: Omit<Category, 'id'>) => {
@@ -2490,6 +3592,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCategories(INITIAL_CATEGORIES);
     setAttributes(INITIAL_ATTRIBUTES);
     setProducts(INITIAL_PRODUCTS);
+    setPreOrderProducts(INITIAL_PREORDER_PRODUCTS);
+    setPreOrders([]);
+    setBuyMoreOffers(INITIAL_BUYMORE_OFFERS);
+    setBuyMoreVouchers(INITIAL_BUYMORE_VOUCHERS);
     setHeroSlides(INITIAL_HERO_SLIDES);
     setCoupons(INITIAL_COUPONS);
     setReviews(INITIAL_REVIEWS);
@@ -2519,6 +3625,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const contextValue = React.useMemo(() => ({
       modificationWindowHours,
       products,
+      preOrderProducts,
+      preOrders,
+      buyMoreOffers,
+      buyMoreVouchers,
       categories,
       quickCategories,
       attributes,
@@ -2534,6 +3644,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       activeCategory,
       searchQuery,
       selectedProduct,
+      selectedPreOrderProduct,
+      selectedBuyMoreOffer,
+      activeSeeMoreSection,
       isCartOpen,
       isCheckoutOpen,
       isAdminModalOpen,
@@ -2561,6 +3674,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setActiveCategory,
       setSearchQuery,
       setSelectedProduct,
+      setSelectedPreOrderProduct,
+      setSelectedBuyMoreOffer,
+      setActiveSeeMoreSection,
       setIsCartOpen,
       setIsCheckoutOpen,
       setIsAdminModalOpen,
@@ -2596,6 +3712,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       deleteProducts,
       moveProduct,
       updateProductPosition,
+      addPreOrderProduct,
+      updatePreOrderProduct,
+      deletePreOrderProduct,
+      movePreOrderProduct,
+      placePreOrder,
+      updatePreOrderStatus,
+      togglePreOrderSeen,
+      deletePreOrder,
+      preOrderProductToCartItem,
+      addPreOrderToCart,
+      modifyPreOrder,
+      cancelPreOrder,
+      addBuyMoreOffer,
+      updateBuyMoreOffer,
+      deleteBuyMoreOffer,
+      addBuyMoreVoucher,
+      updateBuyMoreVoucher,
+      deleteBuyMoreVoucher,
+      buyMoreOfferToCartItem,
+      addBuyMoreOfferToCart,
       updateProductStock,
       getProductStockStatus,
       calculateStockStatus,
@@ -2660,9 +3796,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       inventorySearch,
       setInventorySearch
     }), [
-      modificationWindowHours, products, categories, quickCategories, attributes, heroSlides, coupons, reviews, storeConfig, orders, customers, cart, wishlist, collectedVouchers, activeCategory, searchQuery, selectedProduct, isCartOpen, isCheckoutOpen, isAdminModalOpen, isAdminLoggedIn, isAdminViewingStore, isVoucherModalOpen, isMenuDrawerOpen, isSearchPageOpen, activeAdminTab, activePolicyModal, selectedStaticPage, directCheckoutItem, directCheckoutItems, isOrderPolicyOpen, isVariantModalOpen, variantModalProduct, inventoryFilter, inventorySearch,
+      modificationWindowHours, products, preOrderProducts, preOrders, buyMoreOffers, buyMoreVouchers, categories, quickCategories, attributes, heroSlides, coupons, reviews, storeConfig, orders, customers, cart, wishlist, collectedVouchers, activeCategory, searchQuery, selectedProduct, selectedPreOrderProduct, selectedBuyMoreOffer, activeSeeMoreSection, isCartOpen, isCheckoutOpen, isAdminModalOpen, isAdminLoggedIn, isAdminViewingStore, isVoucherModalOpen, isMenuDrawerOpen, isSearchPageOpen, activeAdminTab, activePolicyModal, selectedStaticPage, directCheckoutItem, directCheckoutItems, isOrderPolicyOpen, isVariantModalOpen, variantModalProduct, inventoryFilter, inventorySearch,
       // functions should be stable if these setters are stable, but they are from useState/useCallback
-      setActiveCategory, setSearchQuery, setSelectedProduct, setIsCartOpen, setIsCheckoutOpen, setIsAdminModalOpen, setIsAdminLoggedIn, setIsAdminViewingStore, setIsVoucherModalOpen, setIsMenuDrawerOpen, setIsSearchPageOpen, setActiveAdminTab, setActivePolicyModal, setSelectedStaticPage, collectVoucher, isVoucherCollected, addToCart, removeFromCart, updateCartQuantity, updateCartItem, removeCartItemByIndex, clearCart, toggleWishlist, isInWishlist, validateCoupon, placeOrder, updateOrderStatus, updateOrder, deleteOrder, deleteOrders, deleteAllOrders, toggleOrderSeen, addProduct, updateProduct, deleteProduct, deleteProducts, updateProductStock, getProductStockStatus, calculateStockStatus, addCategory, updateCategory, deleteCategory, moveCategory, addQuickCategory, updateQuickCategory, deleteQuickCategory, reorderQuickCategories, addAttribute, updateAttribute, deleteAttribute, addHeroSlide, updateHeroSlide, deleteHeroSlide, reorderHeroSlides, addCoupon, updateCoupon, deleteCoupon, addReview, updateReviewStatus, editReview, deleteReview, deleteReviews, moveReview, updateReviewPosition, pinReviewToTop, updateStoreConfig, updateLastViewedOrderTimestamp, resetToFactoryDefaults, loginAdmin, staticPages, addStaticPage, updateStaticPage, deleteStaticPage, adminEmail, adminPassword, adminSecretCode, updateAdminCredentials, syncToCloudNow, seedDatabaseToFirestore, isCloudSynced, searchLogs, searchTelemetry, refreshTelemetry, logSearchQuery, clearSearchLogs, adminsList, addAdmin, deleteAdmin, loggedInAdminEmail, setLoggedInAdminEmail, logoutAdmin, isLoading, error, setError, setInventoryFilter, setInventorySearch
+      setActiveCategory, setSearchQuery, setSelectedProduct, setSelectedPreOrderProduct, setSelectedBuyMoreOffer, setActiveSeeMoreSection, setIsCartOpen, setIsCheckoutOpen, setIsAdminModalOpen, setIsAdminLoggedIn, setIsAdminViewingStore, setIsVoucherModalOpen, setIsMenuDrawerOpen, setIsSearchPageOpen, setActiveAdminTab, setActivePolicyModal, setSelectedStaticPage, collectVoucher, isVoucherCollected, addToCart, removeFromCart, updateCartQuantity, updateCartItem, removeCartItemByIndex, clearCart, toggleWishlist, isInWishlist, validateCoupon, placeOrder, updateOrderStatus, updateOrder, deleteOrder, deleteOrders, deleteAllOrders, toggleOrderSeen, addProduct, updateProduct, deleteProduct, deleteProducts, addPreOrderProduct, updatePreOrderProduct, deletePreOrderProduct, placePreOrder, updatePreOrderStatus, togglePreOrderSeen, deletePreOrder, preOrderProductToCartItem, addPreOrderToCart, modifyPreOrder, cancelPreOrder, addBuyMoreOffer, updateBuyMoreOffer, deleteBuyMoreOffer, addBuyMoreVoucher, updateBuyMoreVoucher, deleteBuyMoreVoucher, buyMoreOfferToCartItem, addBuyMoreOfferToCart, updateProductStock, getProductStockStatus, calculateStockStatus, addCategory, updateCategory, deleteCategory, moveCategory, addQuickCategory, updateQuickCategory, deleteQuickCategory, reorderQuickCategories, addAttribute, updateAttribute, deleteAttribute, addHeroSlide, updateHeroSlide, deleteHeroSlide, reorderHeroSlides, addCoupon, updateCoupon, deleteCoupon, addReview, updateReviewStatus, editReview, deleteReview, deleteReviews, moveReview, updateReviewPosition, pinReviewToTop, updateStoreConfig, updateLastViewedOrderTimestamp, resetToFactoryDefaults, loginAdmin, staticPages, addStaticPage, updateStaticPage, deleteStaticPage, adminEmail, adminPassword, adminSecretCode, updateAdminCredentials, syncToCloudNow, seedDatabaseToFirestore, isCloudSynced, searchLogs, searchTelemetry, refreshTelemetry, logSearchQuery, clearSearchLogs, adminsList, addAdmin, deleteAdmin, loggedInAdminEmail, setLoggedInAdminEmail, logoutAdmin, isLoading, error, setError, setInventoryFilter, setInventorySearch
     ]);
 
   return (

@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, RefreshCw, CheckCircle, Store, Bell, Phone, Shield, Upload, Sparkles, Image as ImageIcon, Check, Clock, Mail, Send, Tag } from 'lucide-react';
+import { Save, RefreshCw, CheckCircle, Store, Bell, Phone, Shield, Upload, Sparkles, Image as ImageIcon, Check, Clock, Mail, Send, Tag, LayoutGrid } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
+import { INITIAL_STORE_CONFIG } from '../../data/initialData';
+import { SectionGridLayoutConfig } from '../../types/store';
 import { compressImage } from '../../utils/imageCompressor';
 import { uploadImageToStorage } from '../../storageService';
 import { StoreLogo } from '../common/StoreLogo';
 import { getWorkingHoursStatus, formatMinutesTo12Hour, parseTimeToMinutes, formatTimeString } from '../../utils/workingHours';
+
+const DEFAULT_SECTION_LAYOUTS = INITIAL_STORE_CONFIG.sectionLayouts!;
 
 export const StoreSettingsManager: React.FC = () => {
   const { storeConfig, updateStoreConfig, resetToFactoryDefaults, categories, syncToCloudNow } = useStore();
@@ -158,6 +162,20 @@ export const StoreSettingsManager: React.FC = () => {
         setWorkingIsOpen(storeConfig.workingHours.isOpen ?? true);
         setWorkingIsAlwaysOpen(storeConfig.workingHours.isAlwaysOpen ?? false);
       }
+      setSectionLayouts({
+        ourProducts: {
+          ...DEFAULT_SECTION_LAYOUTS.ourProducts,
+          ...(storeConfig.sectionLayouts?.ourProducts || {}),
+        },
+        preOrder: {
+          ...DEFAULT_SECTION_LAYOUTS.preOrder,
+          ...(storeConfig.sectionLayouts?.preOrder || {}),
+        },
+        buyMore: {
+          ...DEFAULT_SECTION_LAYOUTS.buyMore,
+          ...(storeConfig.sectionLayouts?.buyMore || {}),
+        },
+      });
     }
   }, [storeConfig]);
 
@@ -291,6 +309,38 @@ export const StoreSettingsManager: React.FC = () => {
   const [voucherBannerTitle, setVoucherBannerTitle] = useState(storeConfig.voucherBannerTitle || 'Special Voucher Drop');
   const [voucherBannerSubtitle, setVoucherBannerSubtitle] = useState(storeConfig.voucherBannerSubtitle || 'Flat ৳50 OFF with code WELCOME50 on your first order!');
   const [isVouchersActive, setIsVouchersActive] = useState(storeConfig.isVouchersActive ?? true);
+  const [sectionLayouts, setSectionLayouts] = useState<{
+    ourProducts: SectionGridLayoutConfig;
+    preOrder: SectionGridLayoutConfig;
+    buyMore: SectionGridLayoutConfig;
+  }>(() => ({
+    ourProducts: {
+      ...DEFAULT_SECTION_LAYOUTS.ourProducts,
+      ...(storeConfig.sectionLayouts?.ourProducts || {}),
+    },
+    preOrder: {
+      ...DEFAULT_SECTION_LAYOUTS.preOrder,
+      ...(storeConfig.sectionLayouts?.preOrder || {}),
+    },
+    buyMore: {
+      ...DEFAULT_SECTION_LAYOUTS.buyMore,
+      ...(storeConfig.sectionLayouts?.buyMore || {}),
+    },
+  }));
+
+  const updateSectionLayoutField = (
+    sectionKey: 'ourProducts' | 'preOrder' | 'buyMore',
+    field: keyof SectionGridLayoutConfig,
+    value: number
+  ) => {
+    setSectionLayouts((prev) => ({
+      ...prev,
+      [sectionKey]: {
+        ...prev[sectionKey],
+        [field]: value,
+      },
+    }));
+  };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -353,7 +403,8 @@ export const StoreSettingsManager: React.FC = () => {
       },
       voucherBannerTitle,
       voucherBannerSubtitle,
-      isVouchersActive
+      isVouchersActive,
+      sectionLayouts
     });
 
     setSavedMsg(true);
@@ -802,6 +853,155 @@ export const StoreSettingsManager: React.FC = () => {
             <p className="text-[11px] text-slate-400 mt-1">
               টিকমার্ক অন রাখলে মূল ব্যানার স্লাইডারে 'Shop Now' বাটন দৃশ্যমান হবে। অফ করলে শুধু কাস্টম ব্যানার ছবি থাকবে।
             </p>
+          </div>
+        </div>
+
+        {/* Storefront Grid, Rows & Columns Control per Section */}
+        <div className="space-y-4 pt-4 border-t border-slate-700">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h4 className="text-xs font-bold text-[#38BDF8] uppercase tracking-wider flex items-center gap-1.5">
+                <LayoutGrid className="w-4 h-4" /> Storefront Rows, Columns &amp; Per-Row Capacity (সারি ও কলাম নিয়ন্ত্রণ)
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                প্রতিটি সেকশনের সারি (Rows), ডেস্কটপ কলাম, মোবাইল কলাম ও প্রতি সারিতে সর্বোচ্চ আইটেম সংখ্যা নিজের মতো নির্ধারণ করুন (যেমন: প্রি-অর্ডার বেশি হলে ১০ সারি)।
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleInstantToggle({ sectionLayouts })}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              Save Grid Layout Now
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {(
+              [
+                {
+                  key: 'ourProducts' as const,
+                  label: '1. Our Products (মূল প্রোডাক্ট)',
+                  accent: 'border-emerald-500/30',
+                  badge: 'text-emerald-300',
+                },
+                {
+                  key: 'preOrder' as const,
+                  label: '2. Upcoming / Pre-Order (আপকামিং)',
+                  accent: 'border-amber-500/30',
+                  badge: 'text-amber-300',
+                },
+                {
+                  key: 'buyMore' as const,
+                  label: '3. Buy One Get More (বাই ওয়ান গেট মোর)',
+                  accent: 'border-indigo-500/30',
+                  badge: 'text-indigo-300',
+                },
+              ]
+            ).map(({ key, label, accent, badge }) => {
+              const cfg = sectionLayouts[key];
+              return (
+                <div key={key} className={`p-4 rounded-2xl bg-slate-900 border ${accent} space-y-3`}>
+                  <h5 className={`text-xs font-extrabold ${badge}`}>{label}</h5>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Desktop Max Rows (সারি)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={cfg.maxRows}
+                        onChange={(e) =>
+                          updateSectionLayoutField(key, 'maxRows', Math.min(20, Math.max(1, Number(e.target.value) || 1)))
+                        }
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Mobile Rows (মোবাইল লাইন)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={cfg.mobileMaxRows ?? 4}
+                        onChange={(e) =>
+                          updateSectionLayoutField(key, 'mobileMaxRows', Math.min(20, Math.max(1, Number(e.target.value) || 1)))
+                        }
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Desktop Columns (কলাম)
+                      </label>
+                      <select
+                        value={cfg.desktopColumns}
+                        onChange={(e) => updateSectionLayoutField(key, 'desktopColumns', Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+                      >
+                        {[2, 3, 4, 5, 6].map((n) => (
+                          <option key={n} value={n}>{n} Columns / Row</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Mobile Columns
+                      </label>
+                      <select
+                        value={cfg.mobileColumns}
+                        onChange={(e) => updateSectionLayoutField(key, 'mobileColumns', Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+                      >
+                        {[1, 2, 3].map((n) => (
+                          <option key={n} value={n}>{n} Cols on Mobile</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        Items / Row (সর্বোচ্চ পিস)
+                      </label>
+                      <input
+                        type="number"
+                        min={4}
+                        max={50}
+                        value={cfg.maxItemsPerRow}
+                        onChange={(e) =>
+                          updateSectionLayoutField(key, 'maxItemsPerRow', Math.min(50, Math.max(4, Number(e.target.value) || 20)))
+                        }
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                        1-Row Beauty Limit
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={cfg.autoSingleRowThreshold ?? 3}
+                        onChange={(e) =>
+                          updateSectionLayoutField(key, 'autoSingleRowThreshold', Math.min(12, Math.max(1, Number(e.target.value) || 3)))
+                        }
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

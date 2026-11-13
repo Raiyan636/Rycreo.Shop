@@ -35,6 +35,9 @@ import { downloadOrderMemo } from '../utils/memoGenerator';
 import { compressImage } from '../utils/imageCompressor';
 import { useToast } from './common/Toast';
 import { formatBangladeshDateTime } from '../utils/dateFormatter';
+import { resolveStoreAssetUrl } from '../utils/clientAssetResolver';
+import { PhoneInput88, isValidBdPhone } from './common/PhoneInput88';
+import { getPreOrderQuotaStatus, getVariationStockForSelection } from '../utils/stockHelper';
 
 // 3-Stage Order Completion Delivery Truck Animation
 const CompletedOrderTruckAnimation: React.FC = () => {
@@ -183,13 +186,38 @@ export const CheckoutModal: React.FC = () => {
     setDirectCheckoutItems,
     openVariantModal,
     modificationWindowHours,
-    openOrderPolicyModal
+    openOrderPolicyModal,
+    preOrderProducts,
+    buyMoreOffers,
+    setSelectedPreOrderProduct,
+    setSelectedBuyMoreOffer
   } = useStore();
 
   const checkoutItems = directCheckoutItems && directCheckoutItems.length > 0
     ? directCheckoutItems 
     : (directCheckoutItem ? [directCheckoutItem] : cart);
   const isDirectCheckout = (directCheckoutItems && directCheckoutItems.length > 0) || !!directCheckoutItem;
+  const hasPreOrderItem = useMemo(() => {
+    return checkoutItems.some(
+      it => it.isPreOrder || it.product?.isPreOrder || it.product?.availability === 'preorder'
+    );
+  }, [checkoutItems]);
+  const preOrderAdvanceTotal = useMemo(() => {
+    return checkoutItems.reduce((sum, it) => {
+      if (!(it.isPreOrder || it.product?.isPreOrder || it.product?.availability === 'preorder')) {
+        return sum;
+      }
+      const lineTotal = it.price * it.quantity;
+      const advType = it.preOrderAdvanceType || it.product?.preOrderAdvanceType || 'fixed';
+      const advVal = it.preOrderAdvanceValue ?? it.product?.preOrderAdvanceValue ?? 0;
+      if (advVal > 0) {
+        return sum + (advType === 'percent'
+          ? Math.round((lineTotal * Math.min(100, advVal)) / 100)
+          : Math.min(lineTotal, advVal * it.quantity));
+      }
+      return sum + lineTotal;
+    }, 0);
+  }, [checkoutItems]);
   const { showToast } = useToast();
   const lockHours = modificationWindowHours || Number(storeConfig?.orderLockDurationHours) || 24;
 
@@ -405,7 +433,7 @@ export const CheckoutModal: React.FC = () => {
       setPaymentReceiptImage(base64);
     } catch (err) {
       console.error("Receipt compression failed:", err);
-      alert("Failed to upload screenshot. Please try another image.");
+      showToast("Failed to upload screenshot. Please try another image.", "error");
     } finally {
       setIsUploadingReceipt(false);
     }
@@ -489,13 +517,23 @@ export const CheckoutModal: React.FC = () => {
     );
   }, [storeConfig.advanceMinOrderThresholdActive, storeConfig.advanceMinOrderThresholdAmount, subtotal]);
 
-  // Determine if cash on delivery is allowed (kept available as per user request)
+  // Determine if cash on delivery is allowed (disabled whenever any Pre-Order item is present)
   const isCodAllowed = useMemo(() => {
+    if (hasPreOrderItem) return false;
     return storeConfig.isCodEnabled !== false;
-  }, [storeConfig.isCodEnabled]);
+  }, [storeConfig.isCodEnabled, hasPreOrderItem]);
 
-  // Auto-correct state to ensure selected paymentType is valid
+  // Auto-correct state to ensure selected paymentType is valid & enforce Pre-Order Advance
   useEffect(() => {
+    if (hasPreOrderItem) {
+      setIsPaymentMethodSelected(true);
+      if (preOrderAdvanceTotal >= subtotal && subtotal > 0) {
+        setPaymentType('full_payment');
+      } else {
+        setPaymentType('security_advance');
+      }
+      return;
+    }
     if (!isCodAllowed && paymentType === 'cod') {
       if (activeProductAdvanceRule && activeProductAdvanceRule.advanceType === 'percent' && activeProductAdvanceRule.advanceValue === 100) {
         setPaymentType('full_payment');
@@ -503,7 +541,7 @@ export const CheckoutModal: React.FC = () => {
         setPaymentType('security_advance');
       }
     }
-  }, [isCodAllowed, paymentType, activeProductAdvanceRule]);
+  }, [isCodAllowed, paymentType, activeProductAdvanceRule, hasPreOrderItem, preOrderAdvanceTotal, subtotal]);
 
   // Comprehensive calculations solver
   const calculations = useMemo(() => {
@@ -542,7 +580,12 @@ export const CheckoutModal: React.FC = () => {
     let partialFreeDelivery = false;
     let advancePctDisplay = 0;
 
-    if (activeProductAdvanceRule) {
+    if (hasPreOrderItem && preOrderAdvanceTotal > 0) {
+      partialDiscountPct = 0;
+      partialFreeDelivery = false;
+      partialAdvanceAmt = preOrderAdvanceTotal;
+      advancePctDisplay = subtotal > 0 ? Math.min(100, Math.round((preOrderAdvanceTotal / subtotal) * 100)) : 0;
+    } else if (activeProductAdvanceRule) {
       partialDiscountPct = activeProductAdvanceRule.discountPercent ?? storeConfig.securityAdvanceDiscountPercent ?? 5;
       partialFreeDelivery = !!activeProductAdvanceRule.freeDelivery || !!storeConfig.securityAdvanceFreeDeliveryActive;
       if (activeProductAdvanceRule.advanceType === 'percent') {
@@ -577,10 +620,12 @@ export const CheckoutModal: React.FC = () => {
     const partialDue = Math.max(0, partialTotal - partialAdvance);
 
     // 3. FULL ADVANCE
-    const fullPaymentBaseDiscountPct = storeConfig.fullPaymentDiscountPercent ?? 20;
-    const fullGatewayDiscountPct = (selectedOnlineGateway.hasDiscount !== false)
-      ? (selectedOnlineGateway.discountPercent ?? selectedOnlineGateway.prepaymentDiscountPercent ?? storeConfig.prepaymentDiscountPercent ?? 10)
-      : 0;
+    const fullPaymentBaseDiscountPct = hasPreOrderItem ? 0 : (storeConfig.fullPaymentDiscountPercent ?? 20);
+    const fullGatewayDiscountPct = hasPreOrderItem
+      ? 0
+      : ((selectedOnlineGateway.hasDiscount !== false)
+          ? (selectedOnlineGateway.discountPercent ?? selectedOnlineGateway.prepaymentDiscountPercent ?? storeConfig.prepaymentDiscountPercent ?? 10)
+          : 0);
     const fullDiscountPct = fullPaymentBaseDiscountPct + fullGatewayDiscountPct;
     const fullDiscountAmt = Math.round((subtotal * fullDiscountPct) / 100) + appliedDiscount;
     const fullFreeDelivery = !!storeConfig.prepaymentFreeDeliveryActive;
@@ -624,7 +669,7 @@ export const CheckoutModal: React.FC = () => {
         isFreeDelivery: isFreeByCouponOrItem || fullFreeDelivery
       }
     };
-  }, [subtotal, cityRegion, storeConfig, activeProductAdvanceRule, appliedDiscount, hasFreeShippingItem, isCouponFreeDelivery, selectedOnlineGateway]);
+  }, [subtotal, cityRegion, storeConfig, activeProductAdvanceRule, appliedDiscount, hasFreeShippingItem, isCouponFreeDelivery, selectedOnlineGateway, hasPreOrderItem, preOrderAdvanceTotal]);
 
   const currentCalc = useMemo(() => {
     if (paymentType === 'full_payment') return calculations.full;
@@ -648,66 +693,74 @@ export const CheckoutModal: React.FC = () => {
                                        (paymentType === 'security_advance' && !!storeConfig.securityAdvanceFreeDeliveryActive);
   const isFixedAdvanceMode = paymentType === 'security_advance' || (paymentType === 'cod' && calculations.cod.advance > 0);
 
-  // Check available stock for any cart item (variation/sizes/standalone)
+  // Check available stock for any cart item (variation/color/size/pre-order/standalone)
   const getCartItemMaxStock = (item: CartItem): { maxStock: number; label: string; isOutOfStock: boolean } => {
+    if (item.isBuyMoreOffer || item.product?.isBuyMoreOffer) {
+      return {
+        maxStock: 99,
+        label: 'Available for Order',
+        isOutOfStock: false
+      };
+    }
+
+    if (item.isPreOrder || item.product?.isPreOrder || item.product?.availability === 'preorder') {
+      const livePre = preOrderProducts.find(p => p.id === item.productId);
+      if (livePre) {
+        const quota = getPreOrderQuotaStatus(livePre);
+        const hasVariants = (Array.isArray(livePre.variations) && livePre.variations.length > 0)
+          || (Array.isArray(livePre.sizes) && livePre.sizes.length > 0)
+          || (Array.isArray(livePre.colors) && livePre.colors.some(c => typeof c !== 'string' && c.stock !== undefined));
+        const varCap = hasVariants
+          ? getVariationStockForSelection(livePre as any, item.selectedColor, item.selectedSize)
+          : quota.remaining;
+        const cap = Math.max(0, quota.tracksQuota ? Math.min(quota.remaining, varCap) : varCap);
+        return {
+          maxStock: cap,
+          label: cap <= 0
+            ? `Pre-Order Fulfilled — All ${quota.totalQuotaDisplay} pcs Sold!`
+            : `Only ${cap} pre-order slot(s) remaining`,
+          isOutOfStock: (quota.tracksQuota || hasVariants) ? (cap <= 0 || item.quantity > cap) : false
+        };
+      }
+      const fallbackProd = products.find(p => p.id === item.productId) || item.product;
+      const resolved = getVariationStockForSelection(fallbackProd, item.selectedColor, item.selectedSize);
+      return {
+        maxStock: resolved,
+        label: resolved <= 0 ? 'Pre-Order Fulfilled' : `Only ${resolved} pcs remaining`,
+        isOutOfStock: resolved <= 0 || item.quantity > resolved
+      };
+    }
+
     const liveProd = products.find(p => p.id === item.productId) || item.product;
-    
-    // Check variation stock
-    if (item.selectedVariation && liveProd.variations && liveProd.variations.length > 0) {
-      const liveVar = liveProd.variations.find((v: any) => v.id === item.selectedVariation?.id);
-      if (liveVar) {
-        return {
-          maxStock: liveVar.stock,
-          label: `We have only ${liveVar.stock} pcs left in stock`,
-          isOutOfStock: item.quantity > liveVar.stock
-        };
-      }
-    }
-    
-    // Check size stock
-    if (item.selectedSize && liveProd.sizes && liveProd.sizes.length > 0) {
-      const liveSize = liveProd.sizes.find((s: any) => s.size === item.selectedSize);
-      if (liveSize) {
-        return {
-          maxStock: liveSize.stock,
-          label: `We have only ${liveSize.stock} pcs left in stock`,
-          isOutOfStock: item.quantity > liveSize.stock
-        };
-      }
-    }
-    
-    // Fallback to standalone stock
+    const resolvedStock = getVariationStockForSelection(liveProd, item.selectedColor, item.selectedSize);
     return {
-      maxStock: liveProd.stock,
-      label: `We have only ${liveProd.stock} pcs left in stock`,
-      isOutOfStock: item.quantity > liveProd.stock
+      maxStock: resolvedStock,
+      label: resolvedStock <= 0 ? 'Out of Stock' : `We have only ${resolvedStock} pcs left in stock`,
+      isOutOfStock: resolvedStock <= 0 || item.quantity > resolvedStock
     };
   };
 
-  // Validate Step 1 before proceeding
+  // Validate Step 1 (Delivery & Contact Details ONLY) before proceeding to Step 2
   const validateStep1 = (): boolean => {
     if (!customerName.trim()) {
       showToast("Please enter your Full Name.", "error");
       return false;
     }
     if (!phone.trim()) {
+      setPhoneError(true);
       showToast("Please enter your Phone Number.", "error");
       return false;
     }
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length !== 11) {
+    if (!isValidBdPhone(phone)) {
       setPhoneError(true);
-      showToast("ফোন নম্বরটি অবশ্যই ১১ ডিজিটের হতে হবে! (Phone number must be exactly 11 digits)", "error");
+      showToast("ফোন নম্বরটি অবশ্যই ১১ ডিজিটের হতে হবে এবং 0 দিয়ে শুরু হতে হবে! (e.g. 017XXXXXXXX)", "error");
       return false;
     }
     setPhoneError(false);
 
-    if (altPhone.trim()) {
-      const cleanAlt = altPhone.replace(/\D/g, '');
-      if (cleanAlt.length !== 11) {
-        showToast("বিকল্প ফোন নম্বরটি অবশ্যই ১১ ডিজিটের হতে হবে! (Alternative phone number must be exactly 11 digits)", "error");
-        return false;
-      }
+    if (altPhone.trim() && !isValidBdPhone(altPhone)) {
+      showToast("বিকল্প ফোন নম্বরটি অবশ্যই ১১ ডিজিটের হতে হবে এবং 0 দিয়ে শুরু হতে হবে! (e.g. 018XXXXXXXX)", "error");
+      return false;
     }
 
     if (!selectedDivision) {
@@ -736,7 +789,7 @@ export const CheckoutModal: React.FC = () => {
       const item = checkoutItems[i];
       const { maxStock, isOutOfStock } = getCartItemMaxStock(item);
       if (isOutOfStock) {
-        showToast(`Out of Stock! We have only ${maxStock} pcs of "${item.product.title}" left in stock. Please adjust your order quantity.`, "error");
+        showToast(`Out of Stock! Only ${maxStock} pcs of "${item.product.title}" available. Please adjust your order quantity.`, "error");
         return false;
       }
     }
@@ -754,51 +807,55 @@ export const CheckoutModal: React.FC = () => {
       return false;
     }
 
-    if (!isPaymentMethodSelected) {
-      showToast("Please choose a payment method above to proceed.", "error");
-      return false;
-    }
-
     return true;
   };
 
-  // Transition to Step 2 or Submit COD Order via Policy Confirmation Popup
+  // Step 1 ONLY moves forward to Step 2 (Payment Method & Confirmation)
   const handleStep1Continue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateStep1()) return;
-
-    if (paymentType === 'cod') {
-      // Open Order Policy & Confirmation Popup with the order execution callback
-      openOrderPolicyModal(async () => {
-        await executeOrderSubmission('Cash on Delivery', undefined, undefined, 0, totalAmount);
-      });
-    } else {
-      // Move to Step 2 for Pay Now / Online Payment verification
-      setCurrentStep(2);
-    }
+    setCurrentStep(2);
   };
 
-  // Submit in Step 2 for Pay Now or Voluntary Advance via Policy Confirmation Popup
+  // Step 2: Validate Payment Method + Online Verification & Trigger Order Policy Confirmation
   const handleStep2Submit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isPaymentMethodSelected) {
+      showToast("অনুগ্রহ করে একটি পেমেন্ট মেথড নির্বাচন করুন (Select a Payment Method).", "error");
+      return;
+    }
+
+    if (paymentType === 'cod') {
+      openOrderPolicyModal(async () => {
+        await executeOrderSubmission(
+          'Cash on Delivery',
+          undefined,
+          undefined,
+          calculations.cod.advance,
+          calculations.cod.due
+        );
+      });
+      return;
+    }
+
     if (!senderPhone.trim()) {
       showToast("Please provide the Sender Phone Number used for payment.", "error");
-      return false;
+      return;
     }
-    const cleanSender = senderPhone.replace(/\D/g, '');
-    if (cleanSender.length !== 11) {
-      showToast("Sender phone number must be exactly 11 digits.", "error");
-      return false;
+    if (!isValidBdPhone(senderPhone)) {
+      showToast("Sender phone number must be 11 digits starting with 0 (e.g. 017XXXXXXXX).", "error");
+      return;
     }
     if (!paymentTrxId.trim()) {
       showToast("Please provide the Transaction ID (TrxID).", "error");
-      return false;
+      return;
     }
 
     const gatewayName = selectedOnlineGateway.name || 'Online Payment';
-    const methodTitle = paymentType === 'cod'
-      ? `Cash on Delivery`
-      : (paymentType === 'security_advance' ? `Security Advance (${gatewayName})` : `Full Payment (${gatewayName})`);
+    const methodTitle = paymentType === 'security_advance'
+      ? `Security Advance (${gatewayName})`
+      : `Full Payment (${gatewayName})`;
     
     // Open Order Policy & Confirmation Popup with the order execution callback
     openOrderPolicyModal(async () => {
@@ -929,12 +986,13 @@ export const CheckoutModal: React.FC = () => {
 
   return (
     <div 
-      className="fixed inset-0 z-[70] overflow-hidden bg-slate-950/75 backdrop-blur-xs flex items-start justify-center p-0 sm:p-3 sm:pt-4 md:pt-6 animate-fade-in"
+      className="fixed inset-0 z-[180] overflow-hidden bg-slate-950/75 backdrop-blur-xs flex items-start justify-center p-0 sm:p-3 sm:pt-4 md:pt-6 animate-fade-in"
       onClick={() => {
         setIsCheckoutOpen(false);
         setCompletedOrder(null);
         setCurrentStep(1);
         setDirectCheckoutItem(null);
+        setDirectCheckoutItems([]);
       }}
     >
       <div 
@@ -953,9 +1011,24 @@ export const CheckoutModal: React.FC = () => {
                   if (currentStep === 2) {
                     setCurrentStep(1);
                   } else if (isDirectCheckout && checkoutItems.length > 0) {
-                    const firstProd = checkoutItems[0].product;
+                    const firstItem = checkoutItems[0];
                     setIsCheckoutOpen(false);
-                    openVariantModal(firstProd);
+                    if (firstItem.isPreOrder || firstItem.product?.isPreOrder) {
+                      const matchedPre = preOrderProducts.find(p => p.id === firstItem.productId);
+                      if (matchedPre) {
+                        setSelectedPreOrderProduct(matchedPre);
+                        return;
+                      }
+                    }
+                    if (firstItem.isBuyMoreOffer || firstItem.product?.isBuyMoreOffer) {
+                      const rawOfferId = firstItem.productId.replace(/^offer-/, '');
+                      const matchedOffer = buyMoreOffers.find(o => o.id === rawOfferId);
+                      if (matchedOffer) {
+                        setSelectedBuyMoreOffer(matchedOffer);
+                        return;
+                      }
+                    }
+                    openVariantModal(firstItem.product);
                   } else {
                     setIsCheckoutOpen(false);
                   }
@@ -971,7 +1044,7 @@ export const CheckoutModal: React.FC = () => {
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-amber-500" />
               <h2 className="font-extrabold text-sm sm:text-base text-slate-900 font-['Outfit']">
-                {completedOrder ? 'Order Confirmed' : (currentStep === 1 ? 'Direct Checkout' : 'Payment Verification')}
+                {completedOrder ? 'Order Confirmed' : (currentStep === 1 ? 'Direct Checkout' : 'Payment Method & Confirm')}
               </h2>
             </div>
           </div>
@@ -1182,22 +1255,17 @@ export const CheckoutModal: React.FC = () => {
                       <label className="text-xs font-bold text-slate-900 block mb-1">
                         Phone Number <span className="text-rose-500">*</span>
                       </label>
-                      <input 
-                        type="tel" 
-                        required
+                      <PhoneInput88
+                        id="checkout-phone"
                         name="phone"
-                        autoComplete="tel"
+                        required
                         value={phone}
-                        onChange={(e) => {
-                          setPhone(e.target.value);
-                          if (phoneError && e.target.value.replace(/\D/g, '').length === 11) setPhoneError(false);
+                        onChange={(val) => {
+                          setPhone(val);
+                          if (phoneError && isValidBdPhone(val)) setPhoneError(false);
                         }}
-                        placeholder="11-digit mobile number"
-                        className={`w-full border rounded-xl px-3 py-2 sm:py-2.5 text-xs font-bold text-slate-900 outline-none transition-all ${
-                          phoneError 
-                            ? 'border-rose-500 ring-2 ring-rose-200 bg-rose-50/50' 
-                            : 'bg-slate-50 border-slate-300 focus:border-[#0284C7] focus:bg-white'
-                        }`}
+                        error={phoneError ? '১১ ডিজিটের মোবাইল নম্বর দিন (01XXXXXXXXX)' : undefined}
+                        placeholder="017XXXXXXXX"
                       />
                     </div>
 
@@ -1205,14 +1273,12 @@ export const CheckoutModal: React.FC = () => {
                       <label className="text-xs font-bold text-slate-900 block mb-1">
                         Alternative Phone (Optional)
                       </label>
-                      <input 
-                        type="tel" 
+                      <PhoneInput88
+                        id="checkout-alt-phone"
                         name="altPhone"
-                        autoComplete="tel"
                         value={altPhone}
-                        onChange={(e) => setAltPhone(e.target.value)}
-                        placeholder="Alternative number"
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 sm:py-2.5 text-xs font-bold text-slate-900 outline-none focus:border-[#0284C7] focus:bg-white"
+                        onChange={setAltPhone}
+                        placeholder="018XXXXXXXX"
                       />
                     </div>
                   </div>
@@ -1317,10 +1383,10 @@ export const CheckoutModal: React.FC = () => {
                         onClick={() => {
                           const validRegion = determineRegion(selectedDivision, selectedDistrict, selectedUpazila);
                           if (validRegion === 'Outside Dhaka') {
-                            alert(`Your selected address (${selectedDistrict}, ${selectedDivision}) is Outside Dhaka. Outside Dhaka shipping (৳${storeConfig.defaultOutsideDhakaFee}) applies.`);
+                            showToast(`Your selected address (${selectedDistrict}, ${selectedDivision}) is Outside Dhaka. Outside Dhaka shipping (৳${storeConfig.defaultOutsideDhakaFee}) applies.`, 'info');
                             setCityRegion('Outside Dhaka');
                           } else if (validRegion === 'Dhaka Suburbs') {
-                            alert(`Your selected address (${selectedUpazila}, ${selectedDistrict}) is in Dhaka Suburbs. Dhaka Suburbs shipping (৳${storeConfig.defaultSuburbsFee ?? 100}) applies.`);
+                            showToast(`Your selected address (${selectedUpazila}, ${selectedDistrict}) is in Dhaka Suburbs. Dhaka Suburbs shipping (৳${storeConfig.defaultSuburbsFee ?? 100}) applies.`, 'info');
                             setCityRegion('Dhaka Suburbs');
                           } else {
                             setCityRegion('Inside Dhaka');
@@ -1340,7 +1406,7 @@ export const CheckoutModal: React.FC = () => {
                         onClick={() => {
                           const validRegion = determineRegion(selectedDivision, selectedDistrict, selectedUpazila);
                           if (validRegion === 'Outside Dhaka') {
-                            alert(`Your selected address (${selectedDistrict}, ${selectedDivision}) is Outside Dhaka. Outside Dhaka shipping (৳${storeConfig.defaultOutsideDhakaFee}) applies.`);
+                            showToast(`Your selected address (${selectedDistrict}, ${selectedDivision}) is Outside Dhaka. Outside Dhaka shipping (৳${storeConfig.defaultOutsideDhakaFee}) applies.`, 'info');
                             setCityRegion('Outside Dhaka');
                           } else {
                             setCityRegion('Dhaka Suburbs');
@@ -1458,27 +1524,62 @@ export const CheckoutModal: React.FC = () => {
                   {/* Cart / Direct Checkout Items List (Displays all independent variants cleanly) */}
                   <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1 space-y-2">
                     {checkoutItems.map((item, idx) => {
-                      const itemSubtotal = item.price * item.quantity;
-                      const availableColors = item.product.colors || [];
-                      const availableSizes = item.product.sizes || [];
+                      const itemSubtotal = (Number(item.price) || 0) * (Number(item.quantity) || 1);
+                      const rawColors = Array.isArray(item.product?.colors) ? item.product.colors : [];
+                      const availableColors = rawColors
+                        .map((c: any) => typeof c === 'string' ? { name: c.trim(), hex: '#1E293B', enabled: true } : c)
+                        .filter((c: any) => Boolean(c?.name) && c?.enabled !== false && item.product?.hasColorVariants !== false);
 
-                      const activeImage = item.selectedColor 
-                        ? (availableColors.find(c => c.name === item.selectedColor)?.image || item.product.images[0])
-                        : item.product.images[0];
+                      const rawSizes = Array.isArray(item.product?.sizes) ? item.product.sizes : [];
+                      const availableSizes = rawSizes
+                        .map((s: any) => typeof s === 'string' ? { size: s.trim(), stock: 99 } : s)
+                        .filter((s: any) => {
+                          const label = (s?.size || '').trim();
+                          return Boolean(label) && label.toLowerCase() !== 'standard' && label.toLowerCase() !== 'standard / free size';
+                        });
+
+                      const fallbackImg = item.product?.images?.[0] || '';
+                      const matchedColorObj = item.selectedColor
+                        ? availableColors.find((c: any) => c.name?.toLowerCase() === item.selectedColor?.toLowerCase())
+                        : undefined;
+                      const activeImage = matchedColorObj?.image || matchedColorObj?.gallery?.[0] || fallbackImg;
+
+                      const resolveUpdatedVariant = (nextColor?: string, nextSize?: string): Partial<CartItem> => {
+                        const vars = item.product?.variations || [];
+                        if (vars.length > 0) {
+                          const foundVar = vars.find(v => {
+                            const vc = v.combination?.['Color'] || v.combination?.['Colour'] || v.combination?.['color'];
+                            const vs = v.combination?.['Size'] || v.combination?.['Waist Size'] || v.combination?.['size'];
+                            const colOk = !nextColor || !vc || vc === nextColor;
+                            const szOk = !nextSize || !vs || vs === nextSize;
+                            return colOk && szOk;
+                          });
+                          if (foundVar) {
+                            const varPrice = Number(foundVar.salePrice) > 0 ? Number(foundVar.salePrice) : Number(foundVar.price);
+                            return {
+                              selectedColor: nextColor,
+                              selectedSize: nextSize,
+                              selectedVariation: foundVar,
+                              ...(varPrice > 0 ? { price: varPrice } : {})
+                            };
+                          }
+                        }
+                        return { selectedColor: nextColor, selectedSize: nextSize };
+                      };
 
                       return (
                         <div key={`${item.productId}-${item.selectedColor || ''}-${item.selectedSize || ''}-${idx}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
                           <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             <img 
-                              src={activeImage} 
-                              alt={item.product.title} 
+                              src={resolveStoreAssetUrl(activeImage)} 
+                              alt={item.product?.title || 'Product'} 
                               className="w-12 h-14 object-cover rounded-lg border border-slate-200 shrink-0 bg-white" 
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="font-extrabold text-slate-800 text-xs line-clamp-1">{item.product.title}</p>
+                              <p className="font-extrabold text-slate-800 text-xs line-clamp-1">{item.product?.title || 'Item'}</p>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                                 <span className="text-[11px] font-bold text-[#0284C7] font-mono">
-                                  ৳{item.price} <span className="text-[10px] text-slate-400 font-normal">/ unit</span>
+                                  ৳{Number(item.price || 0).toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">/ unit</span>
                                 </span>
                                 {item.selectedColor && (
                                   <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded">
@@ -1493,41 +1594,43 @@ export const CheckoutModal: React.FC = () => {
                               </div>
 
                               {/* Live Color & Size Selectors inside Checkout Memo if user wants to swap variant */}
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                {availableColors.length > 0 && (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] font-bold text-slate-500">Color:</span>
-                                    <select
-                                      value={item.selectedColor || availableColors[0]?.name}
-                                      onChange={(e) => handleUpdateCheckoutItem(idx, { selectedColor: e.target.value })}
-                                      className="bg-white border border-slate-300 text-slate-900 text-[10px] font-extrabold rounded-md px-1.5 py-0.5 outline-none focus:border-sky-500 cursor-pointer shadow-2xs"
-                                    >
-                                      {availableColors.map((col, cIdx) => (
-                                        <option key={cIdx} value={col.name}>
-                                          {col.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
+                              {(availableColors.length > 0 || availableSizes.length > 0) && (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                  {availableColors.length > 0 && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-slate-500">Color:</span>
+                                      <select
+                                        value={item.selectedColor || availableColors[0]?.name}
+                                        onChange={(e) => handleUpdateCheckoutItem(idx, resolveUpdatedVariant(e.target.value, item.selectedSize))}
+                                        className="bg-white border border-slate-300 text-slate-900 text-[10px] font-extrabold rounded-md px-1.5 py-0.5 outline-none focus:border-sky-500 cursor-pointer shadow-2xs"
+                                      >
+                                        {availableColors.map((col: any, cIdx: number) => (
+                                          <option key={cIdx} value={col.name}>
+                                            {col.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
 
-                                {availableSizes.length > 0 && (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] font-bold text-slate-500">Size:</span>
-                                    <select
-                                      value={item.selectedSize || availableSizes[0]?.size}
-                                      onChange={(e) => handleUpdateCheckoutItem(idx, { selectedSize: e.target.value })}
-                                      className="bg-white border border-slate-300 text-slate-900 text-[10px] font-extrabold rounded-md px-1.5 py-0.5 outline-none focus:border-sky-500 cursor-pointer shadow-2xs"
-                                    >
-                                      {availableSizes.map((sz, sIdx) => (
-                                        <option key={sIdx} value={sz.size} disabled={sz.stock === 0}>
-                                          {sz.size} {sz.stock === 0 ? '(Out of stock)' : ''}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                              </div>
+                                  {availableSizes.length > 0 && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-slate-500">Size:</span>
+                                      <select
+                                        value={item.selectedSize || availableSizes[0]?.size}
+                                        onChange={(e) => handleUpdateCheckoutItem(idx, resolveUpdatedVariant(item.selectedColor, e.target.value))}
+                                        className="bg-white border border-slate-300 text-slate-900 text-[10px] font-extrabold rounded-md px-1.5 py-0.5 outline-none focus:border-sky-500 cursor-pointer shadow-2xs"
+                                      >
+                                        {availableSizes.map((sz: any, sIdx: number) => (
+                                          <option key={sIdx} value={sz.size} disabled={sz.stock === 0}>
+                                            {sz.size} {sz.stock === 0 ? '(Out of stock)' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
 
                               {/* Stock warning status inside checkout item card */}
                               {(() => {
@@ -1678,16 +1781,78 @@ export const CheckoutModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Payment Method Selection in Step 1 */}
-                <div className="space-y-2.5 pt-2 border-t border-slate-200">
+                {/* Step 1 Summary & Clean Continue Button ONLY (Payment Options Moved Exclusively to Step 2) */}
+                <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xl border border-slate-800 mt-4">
                   <div>
-                    <label className="text-xs font-extrabold text-slate-900 block">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                      Estimated Order Total:
+                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xl sm:text-2xl font-black text-[#38BDF8] font-mono">
+                        ৳{calculations.cod.total}
+                      </span>
+                      <span className="text-[11px] text-slate-300 font-semibold">
+                        (Incl. Delivery Fee)
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#38BDF8] to-[#6366F1] text-slate-950 font-black text-xs sm:text-sm shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>Continue to Payment Method</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* ---------------------------------------------------- */}
+            {/* STEP 2: Payment Method Selection, Breakdown & Confirmation */}
+            {/* ---------------------------------------------------- */}
+            {currentStep === 2 && (
+              <form onSubmit={handleStep2Submit} className="space-y-4 sm:space-y-5 animate-fade-in">
+                {/* Back to Step 1 Button */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(1)}
+                  className="text-xs font-extrabold text-[#0284C7] hover:underline flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Edit Delivery Details & Address</span>
+                </button>
+
+                {/* Payment Method Selection Options */}
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="text-xs sm:text-sm font-extrabold text-slate-900 block">
                       Choose Payment Method:
                     </label>
                     <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
-                      Select Pay on Delivery or Pay Now (bKash / Nagad / Rocket).
+                      Select Pay on Delivery or Pay Now (bKash / Nagad / Rocket) to confirm your order.
                     </p>
                   </div>
+
+                  {/* Pre-Order Required Advance Payment Notice Banner */}
+                  {hasPreOrderItem && (
+                    <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-sky-50 border-2 border-blue-300 rounded-2xl text-[11px] sm:text-xs text-blue-950 font-semibold space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between gap-2 font-black text-blue-900">
+                        <span className="flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span>Pre-Order Advance Payment Required</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase">
+                          COD Disabled
+                        </span>
+                      </div>
+                      <p className="leading-relaxed">
+                        This order contains Pre-Order item(s). Cash on Delivery (0% advance) is unavailable — please pay the required advance of{' '}
+                        <strong className="font-mono font-black text-blue-700">৳{advancePaidAmount.toLocaleString()}</strong> now via mobile banking, and pay the remaining{' '}
+                        <strong className="font-mono font-black text-slate-900">৳{remainingDueAmount.toLocaleString()}</strong> on delivery.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Active Product Specific Rule Warning Badge */}
                   {activeProductAdvanceRule && (
@@ -1724,16 +1889,12 @@ export const CheckoutModal: React.FC = () => {
                         <p className="text-xs text-slate-800 font-bold leading-relaxed">
                           For high-value orders over <strong className="text-amber-900 font-black font-mono">৳{storeConfig.advanceMinOrderThresholdAmount || 2000}</strong>, a small security deposit of <strong className="text-amber-900 font-black font-mono">৳{storeConfig.advanceMinOrderThresholdValue || 100}</strong> is required to confirm parcel handover.
                         </p>
-                        <p className="text-[10px] text-slate-600 font-bold">
-                          Security Deposit: Orders over ৳{storeConfig.advanceMinOrderThresholdAmount || 2000} require ৳{storeConfig.advanceMinOrderThresholdValue || 100} advance to confirm dispatch.
-                        </p>
                       </div>
                     </div>
                   )}
 
-                  {/* 3 Compact Radio Payment Options */}
-                  <div className="space-y-3">
-                    {/* 1. COD */}
+                  {/* 3 Payment Options */}
+                  <div className="space-y-2.5">
                     {isCodAllowed && (
                       <button
                         type="button"
@@ -1766,7 +1927,6 @@ export const CheckoutModal: React.FC = () => {
                       </button>
                     )}
 
-                    {/* 2. Security Advance */}
                     {(storeConfig.securityAdvanceActive !== false || activeProductAdvanceRule || isHighValueThresholdTriggered) && (
                       <button
                         type="button"
@@ -1789,11 +1949,7 @@ export const CheckoutModal: React.FC = () => {
                               {activeProductAdvanceRule ? 'Pay Custom Partial Advance' : (isHighValueThresholdTriggered ? 'High-Value Security Advance' : (storeConfig.securityAdvanceLabel || 'Security Advance'))}
                             </span>
                             <span className="text-[10px] text-amber-700 font-extrabold block mt-0.5">
-                              {isPaymentMethodSelected && paymentType === 'security_advance' ? (
-                                <>Advance: {calculations.partial.percentageDisplay > 0 ? `${calculations.partial.percentageDisplay}% (` : ''}৳{calculations.partial.advance}{calculations.partial.percentageDisplay > 0 ? ')' : ''}{calculations.partial.discountPct > 0 ? ` • Get ${calculations.partial.discountPct}% OFF` : ''}</>
-                              ) : (
-                                <>Pay delivery fee or security deposit in advance to confirm order</>
-                              )}
+                              Advance: {calculations.partial.percentageDisplay > 0 ? `${calculations.partial.percentageDisplay}% (` : ''}৳{calculations.partial.advance}{calculations.partial.percentageDisplay > 0 ? ')' : ''}{calculations.partial.discountPct > 0 ? ` • Get ${calculations.partial.discountPct}% OFF` : ''}
                             </span>
                           </div>
                         </div>
@@ -1803,7 +1959,6 @@ export const CheckoutModal: React.FC = () => {
                       </button>
                     )}
 
-                    {/* 3. Full Payment */}
                     {storeConfig.fullPaymentActive !== false && (
                       <button
                         type="button"
@@ -1824,11 +1979,7 @@ export const CheckoutModal: React.FC = () => {
                           <div>
                             <span className="text-xs sm:text-sm font-extrabold text-slate-900 block leading-tight">Pay Full Payment (100% Advance)</span>
                             <span className="text-[10px] text-emerald-700 font-extrabold block mt-0.5">
-                              {isPaymentMethodSelected && paymentType === 'full_payment' ? (
-                                <>Advance: 100% (৳{calculations.full.advance}){calculations.full.discountPct > 0 ? ` • Get ${calculations.full.discountPct}% OFF` : ''}</>
-                              ) : (
-                                <>Pay 100% upfront online and enjoy maximum discount</>
-                              )}
+                              Advance: 100% (৳{calculations.full.advance}){calculations.full.discountPct > 0 ? ` • Get ${calculations.full.discountPct}% OFF` : ''}
                             </span>
                           </div>
                         </div>
@@ -1838,415 +1989,241 @@ export const CheckoutModal: React.FC = () => {
                       </button>
                     )}
                   </div>
+                </div>
 
-                  {/* Payment Selection State Check */}
-                  {!isPaymentMethodSelected ? (
-                    <div className="p-4 bg-amber-50/90 border-2 border-dashed border-amber-300 rounded-2xl text-center space-y-2 animate-fade-in shadow-xs">
-                      <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto font-black text-sm">
-                        👇
-                      </div>
-                      <p className="text-xs sm:text-sm font-black text-slate-900 font-['Outfit']">
-                        Please Select Payment Method
-                      </p>
-                      <p className="text-[11px] font-bold text-slate-600 max-w-sm mx-auto leading-relaxed">
-                        Choose an option above to see how much to Pay Now and how much to Pay on Delivery.
-                      </p>
-                    </div>
-                  ) : (
-                    /* Dynamic Details Box showing clearly required advance & remainder */
-                    <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 text-white rounded-2xl space-y-3 border-2 border-emerald-500/80 shadow-lg text-xs sm:text-sm animate-fade-in relative overflow-hidden">
-                      <div className="flex items-center gap-2 text-emerald-300 font-extrabold text-xs sm:text-sm border-b border-emerald-800/80 pb-2">
-                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <span>Payment Summary & Confirmation Terms</span>
+                {!isPaymentMethodSelected ? (
+                  <div className="p-4 bg-amber-50/90 border-2 border-dashed border-amber-300 rounded-2xl text-center space-y-1.5 animate-fade-in shadow-xs">
+                    <p className="text-xs sm:text-sm font-black text-slate-900 font-['Outfit']">
+                      👇 Please Select Your Payment Method Above
+                    </p>
+                    <p className="text-[11px] font-bold text-slate-600 max-w-sm mx-auto leading-relaxed">
+                      Choose Cash on Delivery, Security Advance, or Full Payment to see the breakdown and finalize your order.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Live Deduction & Billing Card */}
+                    <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 text-white rounded-2xl border-2 border-emerald-500/80 space-y-3 shadow-xl text-xs">
+                      <div className="flex items-center justify-between border-b border-emerald-800/80 pb-2">
+                        <span className="font-extrabold text-emerald-200">Total Order Bill:</span>
+                        <span className="text-sm sm:text-base font-black font-mono text-white">৳{totalAmount}</span>
                       </div>
 
-                      <div className="bg-emerald-900/50 p-3 rounded-xl border border-emerald-500/40 space-y-2">
-                        <p className="text-xs sm:text-sm text-emerald-200 font-extrabold leading-relaxed">
-                          ⚡ <span className="text-white font-black">Pay Now (Confirm Order):</span>{' '}
-                          <strong className="text-emerald-300 font-mono font-black text-sm sm:text-base bg-emerald-950 px-2.5 py-0.5 rounded border border-emerald-400/50">৳{currentCalc.advance}</strong>
-                        </p>
-                        
-                        <p className="text-xs sm:text-sm text-amber-200 font-extrabold leading-relaxed pt-1.5 border-t border-emerald-800/60">
-                          📦 <span className="text-white font-black">{paymentType === 'cod' ? 'Pay On Delivery (Cash on Delivery):' : 'Pay On Delivery:'}</span>{' '}
-                          <strong className="text-amber-300 font-mono font-black text-sm sm:text-base bg-slate-950 px-2.5 py-0.5 rounded border border-amber-400/50">৳{currentCalc.due}</strong>
-                        </p>
-                      </div>
+                      {totalDiscountPct > 0 && (
+                        <div className="flex items-center justify-between text-amber-300 font-bold border-b border-emerald-800/80 pb-1.5">
+                          <span className="flex items-center gap-1">
+                            <Percent className="w-3 h-3 text-amber-400" />
+                            {paymentType === 'security_advance' 
+                              ? `${storeConfig.securityAdvanceLabel || 'Security Advance'} Discount`
+                              : 'Full Payment Discount'
+                            } ({totalDiscountPct}%):
+                          </span>
+                          <span className="font-mono font-black text-amber-400">-৳{totalDiscountAmount - appliedDiscount}</span>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-emerald-950/90 p-2.5 rounded-xl border border-emerald-500/50 text-center shadow-inner">
                           <span className="text-emerald-300 block text-[10px] sm:text-[11px] font-black uppercase tracking-wider">Pay Now</span>
-                          <span className="font-mono font-black text-emerald-300 text-base sm:text-lg">৳{currentCalc.advance}</span>
+                          <span className="font-mono font-black text-emerald-300 text-base sm:text-lg">৳{advancePaidAmount}</span>
                         </div>
                         <div className="bg-slate-950/90 p-2.5 rounded-xl border border-amber-500/50 text-center shadow-inner">
                           <span className="text-amber-300 block text-[10px] sm:text-[11px] font-black uppercase tracking-wider">Pay On Delivery</span>
-                          <span className="font-mono font-black text-amber-300 text-base sm:text-lg">৳{currentCalc.due}</span>
+                          <span className="font-mono font-black text-amber-300 text-base sm:text-lg">৳{remainingDueAmount}</span>
                         </div>
                       </div>
 
                       <div className="flex items-center justify-between text-[11px] text-slate-200 border-t border-emerald-800/80 pt-2 font-bold">
-                        {currentCalc.discountPct > 0 ? (
-                          <span className="text-emerald-300">🎉 Special Offer: <strong className="font-mono font-black text-emerald-300">-{currentCalc.discountPct}% Discount Applied</strong></span>
-                        ) : (
-                          <span className="text-slate-300">Order packing starts immediately upon confirmation</span>
-                        )}
-                        {currentCalc.isFreeDelivery && <span className="text-emerald-300 font-black uppercase bg-emerald-900/80 px-2 py-0.5 rounded border border-emerald-400/60">🚚 Free Delivery!</span>}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Online Gateway Selection if Pay Now is chosen */}
-                  {paymentMode === 'pay_now' && (
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 animate-fade-in">
-                      <p className="text-[11px] font-black text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
-                        <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>Select Mobile Banking Provider:</span>
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {onlineGateways.map((gw) => (
-                          <button
-                            key={gw.id}
-                            type="button"
-                            onClick={() => setSelectedOnlineGatewayId(gw.id)}
-                            className={`p-2 rounded-xl border text-[11px] font-black tracking-tight text-center transition-all cursor-pointer ${
-                              selectedOnlineGatewayId === gw.id 
-                                ? 'border-[#38BDF8] bg-slate-900 text-white shadow-xs' 
-                                : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                            }`}
-                          >
-                            {gw.name}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Display live payment number as soon as chosen, with copy button */}
-                      <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs">
-                        <div className="space-y-0.5">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{selectedOnlineGateway.name} ({selectedOnlineGateway.accountType || 'Personal'}):</p>
-                          <p className="text-sm font-black font-mono text-slate-900 select-all">{(selectedOnlineGateway.accountNumber || '').replace(/\(.*?\)/g, '').trim()}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyGatewayNumber(selectedOnlineGateway.accountNumber)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95"
-                        >
-                          {copiedGatewayNumber ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3 text-sky-400" />
-                              <span>Copy</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-[11px] font-bold flex items-start gap-2 shadow-2xs">
-                        <span className="text-amber-600 font-black text-sm shrink-0">⚠️</span>
-                        <p className="leading-relaxed">
-                          To confirm your order, please send <strong className="font-extrabold text-slate-950 font-mono underline">৳{advancePaidAmount}</strong> via Send Money to the number above, then click <strong>"Proceed to Pay"</strong> below to submit your Sender Phone Number and Transaction ID (TrxID).
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Order Policy & Modification Guarantee Banner */}
-                  <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs">
-                    <div className="flex items-center gap-2 text-amber-900 font-extrabold text-[11px] sm:text-xs">
-                      <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>⚡ {lockHours}-Hour Order Modification Guarantee</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openOrderPolicyModal()}
-                      className="text-[11px] font-black text-amber-800 underline hover:text-amber-950 shrink-0 cursor-pointer"
-                    >
-                      Read Policy
-                    </button>
-                  </div>
-
-                  {/* Final Order Verification & Safety Notice */}
-                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 text-[11px] font-medium flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>100% secure nationwide delivery and dedicated customer care assistance guaranteed.</span>
-                  </div>
-                </div>
-
-                {/* Step 1 Action Bar */}
-                <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xl border border-slate-800 mt-4">
-                  <div>
-                    {paymentMode === 'pay_now' ? (
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">
-                          {paymentType === 'security_advance' ? 'Pay Now (Advance Payment):' : 'Pay Now Total (with Discount):'}
+                        <span>
+                          ⚡ Pay Now: <strong className="text-emerald-300 font-mono">৳{advancePaidAmount}</strong> • Due on Delivery: <strong className="text-amber-300 font-mono">৳{remainingDueAmount}</strong>
                         </span>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">
-                            ৳{advancePaidAmount}
-                          </span>
-                          {paymentType === 'security_advance' ? (
-                            <span className="text-xs text-slate-300 font-semibold">
-                              (Due on Delivery: ৳{remainingDueAmount})
-                            </span>
-                          ) : (
-                            <span className="text-xs text-emerald-300 font-semibold">
-                              (100% Paid • No Delivery Due)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                          {!isPaymentMethodSelected
-                            ? 'Order Total:'
-                            : (paymentType === 'cod' 
-                                ? (calculations.cod.advance > 0 ? 'Cash on Delivery (Advance Deposit):' : 'Cash on Delivery Total:')
-                                : 'Order Total:')
-                          }
-                        </span>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-xl sm:text-2xl font-black text-[#38BDF8] font-mono">
-                            ৳{isPaymentMethodSelected && calculations.cod.advance > 0 ? calculations.cod.advance : totalAmount}
-                          </span>
-                          {isPaymentMethodSelected && calculations.cod.advance > 0 && (
-                            <span className="text-xs text-slate-300 font-semibold">
-                              (Due on Delivery: ৳{calculations.cod.due})
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#38BDF8] to-[#6366F1] text-slate-950 font-black text-xs sm:text-sm shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    {paymentMode === 'pay_now' ? (
-                      <>
-                        <span>Proceed to Pay (৳{advancePaidAmount})</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    ) : (
-                      calculations.cod.advance > 0 ? (
-                        <>
-                          <span>Proceed to Pay Advance (৳{calculations.cod.advance})</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      ) : (
-                        <>
-                          <span>Place Order (৳{totalAmount})</span>
-                          <Check className="w-4 h-4" />
-                        </>
-                      )
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* ---------------------------------------------------- */}
-            {/* STEP 2: Payment Verification & Final Confirmation */}
-            {/* ---------------------------------------------------- */}
-            {currentStep === 2 && (
-              <form onSubmit={handleStep2Submit} className="space-y-4 sm:space-y-5 animate-fade-in">
-                {/* Back to Step 1 Button */}
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep(1)}
-                  className="text-xs font-extrabold text-[#0284C7] hover:underline flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Edit Delivery Details & Address</span>
-                </button>
-
-                {/* Instant Live Deduction & Billing Card */}
-                <div className="p-3.5 sm:p-4 bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 text-white rounded-2xl border-2 border-emerald-500/80 space-y-3 shadow-xl text-xs">
-                  <div className="flex items-center justify-between border-b border-emerald-800/80 pb-2">
-                    <span className="font-extrabold text-emerald-200">Total Order Bill:</span>
-                    <span className="text-sm sm:text-base font-black font-mono text-white">৳{totalAmount}</span>
-                  </div>
-
-                  {totalDiscountPct > 0 && (
-                    <div className="flex items-center justify-between text-amber-300 font-bold border-b border-emerald-800/80 pb-1.5">
-                      <span className="flex items-center gap-1">
-                        <Percent className="w-3 h-3 text-amber-400" />
-                        {paymentType === 'security_advance' 
-                          ? `${storeConfig.securityAdvanceLabel || 'Security Advance'} Discount`
-                          : 'Full Payment Discount'
-                        } ({totalDiscountPct}%):
-                      </span>
-                      <span className="font-mono font-black text-amber-400">-৳{totalDiscountAmount - appliedDiscount}</span>
-                    </div>
-                  )}
-
-                  {/* Advance / Online Payment Display */}
-                  <div className="flex items-center justify-between text-emerald-300 font-black text-xs sm:text-sm bg-emerald-950/90 p-2.5 rounded-xl border border-emerald-400/50">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                      <span>Pay Now (Advance Payment):</span>
-                    </span>
-                    <span className="font-mono text-sm sm:text-base text-emerald-300 font-black">
-                      ৳{advancePaidAmount}
-                    </span>
-                  </div>
-
-                  {/* Remaining Due on Delivery */}
-                  {isFixedAdvanceMode ? (
-                    <div className="flex items-center justify-between text-amber-300 font-black text-xs sm:text-sm bg-slate-950/90 p-2.5 rounded-xl border border-amber-400/50">
-                      <span className="flex items-center gap-1.5">
-                        <Truck className="w-4 h-4 text-amber-400" />
-                        <span>{paymentType === 'cod' ? 'Pay On Delivery (Cash on Delivery):' : 'Remaining Due on Delivery:'}</span>
-                      </span>
-                      <span className="font-mono text-sm sm:text-base text-amber-300 font-black">
-                        ৳{remainingDueAmount}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between text-emerald-300 font-black text-xs sm:text-sm bg-slate-950/90 p-2.5 rounded-xl border border-emerald-400/50">
-                      <span className="flex items-center gap-1.5">
-                        <CheckCircle className="w-4 h-4 text-emerald-400" />
-                        <span>Remaining Due on Delivery:</span>
-                      </span>
-                      <span className="font-mono text-sm sm:text-base text-emerald-300 font-black">
-                        ৳0 (100% Online Paid)
-                      </span>
-                    </div>
-                  )}
-
-                  <p className="text-xs sm:text-sm text-emerald-100 font-extrabold leading-relaxed bg-emerald-900/60 p-3 rounded-xl border border-emerald-500/40 space-y-1">
-                    ⚡ <strong>Payment Breakdown:</strong> Pay Now: <strong className="text-emerald-300 font-mono font-black">৳{advancePaidAmount}</strong> • Pay On Delivery: <strong className="text-amber-300 font-mono font-black">৳{remainingDueAmount}</strong>
-                  </p>
-                </div>
-
-                {/* Merchant Gateway Account Information */}
-                <div className="p-3.5 sm:p-4 bg-slate-900 text-white rounded-2xl border border-slate-800 text-xs space-y-2.5">
-                  <div>
-                    <p className="font-extrabold text-amber-400 text-xs">
-                      {selectedOnlineGateway.name} Account Information:
-                    </p>
-                    <p className="text-slate-100 font-bold mt-1.5 flex flex-wrap items-center gap-2">
-                      <span className="text-slate-400">Number:</span>
-                      <span className="font-mono font-black text-[#38BDF8] text-sm sm:text-base">{(selectedOnlineGateway.accountNumber || '').replace(/\(.*?\)/g, '').trim()}</span>
-                      {selectedOnlineGateway.accountType && (
-                        <span className="text-slate-400 text-[11px] font-medium">({selectedOnlineGateway.accountType})</span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleCopyGatewayNumber(selectedOnlineGateway.accountNumber)}
-                        className="px-2 py-1 rounded-lg bg-[#38BDF8] hover:bg-sky-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
-                      >
-                        {copiedGatewayNumber ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-950" />
-                            <span>Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copy Number</span>
-                          </>
+                        {currentCalc.isFreeDelivery && (
+                          <span className="text-emerald-300 font-black uppercase bg-emerald-900/80 px-2 py-0.5 rounded border border-emerald-400/60">🚚 Free Delivery!</span>
                         )}
-                      </button>
-                    </p>
-
-                    <div className="p-2.5 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 text-xs font-bold flex items-start gap-2 mt-2">
-                      <span className="text-amber-400 font-black text-sm shrink-0">⚠️</span>
-                      <p className="leading-relaxed">
-                        Please send <strong className="text-amber-300 font-mono font-black text-sm">৳{advancePaidAmount}</strong> to the {selectedOnlineGateway.name} number above, then enter your Sender Phone and Transaction ID below.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Payment Verification Form Fields */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-800">
-                    <div>
-                      <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-amber-300 mb-1">
-                        Sender Phone Number <span className="text-rose-400">*</span>
-                      </label>
-                      <input 
-                        type="tel" 
-                        required
-                        value={senderPhone}
-                        onChange={(e) => setSenderPhone(e.target.value)}
-                        placeholder="e.g. 01712345678"
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 sm:p-2.5 text-xs font-mono font-bold text-white outline-none focus:border-[#38BDF8]"
-                      />
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-slate-300 mb-1">
-                        Transaction ID (TrxID) <span className="text-rose-400">*</span>
-                      </label>
-                      <input 
-                        type="text" 
-                        required
-                        value={paymentTrxId}
-                        onChange={(e) => setPaymentTrxId(e.target.value)}
-                        placeholder="e.g. 9J28DA..."
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 sm:p-2.5 text-xs font-mono font-bold text-white outline-none focus:border-[#38BDF8]"
-                      />
-                    </div>
+                    {/* Conditional Online Banking Details ONLY when Pay Now mode is chosen */}
+                    {paymentMode === 'pay_now' && (
+                      <div className="p-3.5 sm:p-4 bg-slate-900 text-white rounded-2xl border border-slate-800 text-xs space-y-3 animate-fade-in">
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-black text-[#38BDF8] flex items-center gap-1.5 uppercase tracking-wider">
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span>Select Mobile Banking Gateway:</span>
+                          </p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {onlineGateways.map((gw) => (
+                              <button
+                                key={gw.id}
+                                type="button"
+                                onClick={() => setSelectedOnlineGatewayId(gw.id)}
+                                className={`p-2 rounded-xl border text-[11px] font-black tracking-tight text-center transition-all cursor-pointer ${
+                                  selectedOnlineGatewayId === gw.id 
+                                    ? 'border-[#38BDF8] bg-[#38BDF8] text-slate-950 shadow-xs' 
+                                    : 'border-slate-700 bg-slate-800 hover:border-slate-600 text-slate-200'
+                                }`}
+                              >
+                                {gw.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
 
-                    {/* Screenshot Upload Field (Completely Optional) */}
-                    <div className="sm:col-span-2 pt-1.5 border-t border-slate-800/60 mt-1">
-                      <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-slate-300 mb-1 flex items-center justify-between">
-                        <span>Payment Receipt Screenshot</span>
-                        <span className="text-slate-400 font-normal lowercase bg-slate-800 px-2 py-0.5 rounded-full">Optional</span>
-                      </label>
-                      <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-slate-600 rounded-xl p-2.5 sm:p-3 bg-slate-800/60 hover:bg-slate-800 transition-all relative">
-                        {paymentReceiptImage ? (
-                          <div className="relative w-full max-h-36 overflow-hidden rounded-lg">
-                            <img src={paymentReceiptImage} alt="Receipt Preview" className="max-h-32 object-contain mx-auto" />
+                        <div>
+                          <p className="font-extrabold text-amber-400 text-xs">
+                            {selectedOnlineGateway.name} Account Information:
+                          </p>
+                          <p className="text-slate-100 font-bold mt-1.5 flex flex-wrap items-center gap-2">
+                            <span className="text-slate-400">Number:</span>
+                            <span className="font-mono font-black text-[#38BDF8] text-sm sm:text-base">{(selectedOnlineGateway.accountNumber || '').replace(/\(.*?\)/g, '').trim()}</span>
+                            {selectedOnlineGateway.accountType && (
+                              <span className="text-slate-400 text-[11px] font-medium">({selectedOnlineGateway.accountType})</span>
+                            )}
                             <button
                               type="button"
-                              onClick={() => setPaymentReceiptImage('')}
-                              className="absolute top-1 right-1 bg-rose-600 text-white rounded-full p-1 hover:bg-rose-700 transition-colors shadow-lg cursor-pointer"
-                              title="Remove Screenshot"
+                              onClick={() => handleCopyGatewayNumber(selectedOnlineGateway.accountNumber)}
+                              className="px-2.5 py-1 rounded-lg bg-[#38BDF8] hover:bg-sky-400 text-slate-950 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
                             >
-                              ✕
+                              {copiedGatewayNumber ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-950" />
+                                  <span>Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy Number</span>
+                                </>
+                              )}
                             </button>
+                          </p>
+
+                          <div className="p-2.5 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 text-xs font-bold flex items-start gap-2 mt-2">
+                            <span className="text-amber-400 font-black text-sm shrink-0">⚠️</span>
+                            <p className="leading-relaxed">
+                              Please send <strong className="text-amber-300 font-mono font-black text-sm">৳{advancePaidAmount}</strong> to the {selectedOnlineGateway.name} number above, then enter your Sender Phone and Transaction ID below.
+                            </p>
                           </div>
-                        ) : (
-                          <label className="cursor-pointer flex flex-col items-center gap-1 text-slate-400 hover:text-white w-full py-1">
-                            <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-[#38BDF8]" />
-                            <span className="font-semibold text-[11px]">Upload Screenshot (Optional)</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleReceiptUpload}
-                              className="hidden"
+                        </div>
+
+                        {/* Payment Verification Form Fields */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-800">
+                          <div>
+                            <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-amber-300 mb-1">
+                              Sender Phone Number <span className="text-rose-400">*</span>
+                            </label>
+                            <PhoneInput88
+                              id="checkout-sender-phone"
+                              name="senderPhone"
+                              required
+                              dark
+                              value={senderPhone}
+                              onChange={setSenderPhone}
+                              placeholder="017XXXXXXXX"
                             />
-                          </label>
-                        )}
-                        {isUploadingReceipt && (
-                          <div className="absolute inset-0 bg-slate-900/85 backdrop-blur-xs flex items-center justify-center rounded-xl">
-                            <p className="text-[#38BDF8] font-bold text-xs animate-pulse">Uploading...</p>
                           </div>
-                        )}
+
+                          <div>
+                            <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-slate-300 mb-1">
+                              Transaction ID (TrxID) <span className="text-rose-400">*</span>
+                            </label>
+                            <input 
+                              type="text" 
+                              required
+                              value={paymentTrxId}
+                              onChange={(e) => setPaymentTrxId(e.target.value)}
+                              placeholder="e.g. 9J28DA..."
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 sm:p-2.5 text-xs font-mono font-bold text-white outline-none focus:border-[#38BDF8]"
+                            />
+                          </div>
+
+                          {/* Screenshot Upload Field (Completely Optional) */}
+                          <div className="sm:col-span-2 pt-1.5 border-t border-slate-800/60 mt-1">
+                            <label className="block text-[10px] sm:text-[11px] font-bold uppercase text-slate-300 mb-1 flex items-center justify-between">
+                              <span>Payment Receipt Screenshot</span>
+                              <span className="text-slate-400 font-normal lowercase bg-slate-800 px-2 py-0.5 rounded-full">Optional</span>
+                            </label>
+                            <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-slate-600 rounded-xl p-2.5 sm:p-3 bg-slate-800/60 hover:bg-slate-800 transition-all relative">
+                              {paymentReceiptImage ? (
+                                <div className="relative w-full max-h-36 overflow-hidden rounded-lg">
+                                  <img src={paymentReceiptImage} alt="Receipt Preview" className="max-h-32 object-contain mx-auto" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setPaymentReceiptImage('')}
+                                    className="absolute top-1 right-1 bg-rose-600 text-white rounded-full p-1 hover:bg-rose-700 transition-colors shadow-lg cursor-pointer"
+                                    title="Remove Screenshot"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className="cursor-pointer flex flex-col items-center gap-1 text-slate-400 hover:text-white w-full py-1">
+                                  <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-[#38BDF8]" />
+                                  <span className="font-semibold text-[11px]">Upload Screenshot (Optional)</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleReceiptUpload}
+                                    className="hidden"
+                                  />
+                                </label>
+                              )}
+                              {isUploadingReceipt && (
+                                <div className="absolute inset-0 bg-slate-900/85 backdrop-blur-xs flex items-center justify-center rounded-xl">
+                                  <p className="text-[#38BDF8] font-bold text-xs animate-pulse">Uploading...</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
+                  </>
+                )}
+
+                {/* Order Policy & Modification Guarantee Banner */}
+                <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs">
+                  <div className="flex items-center gap-2 text-amber-900 font-extrabold text-[11px] sm:text-xs">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>⚡ {lockHours}-Hour Order Modification Guarantee</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => openOrderPolicyModal()}
+                    className="text-[11px] font-black text-amber-800 underline hover:text-amber-950 shrink-0 cursor-pointer"
+                  >
+                    Read Policy
+                  </button>
                 </div>
 
                 {/* Step 2 Final Confirm Bar */}
                 <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xl border border-slate-800 mt-4">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider">
-                      {paymentType === 'security_advance' ? 'Payable Due on Delivery:' : 'Total Payment Amount:'}
+                      {!isPaymentMethodSelected
+                        ? 'Select Payment Method:'
+                        : paymentType === 'cod'
+                          ? 'Cash on Delivery Total:'
+                          : paymentType === 'security_advance'
+                            ? 'Payable Due on Delivery:'
+                            : 'Total Payment Amount:'}
                     </span>
                     <div className="flex items-baseline gap-2">
                       <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono">
-                        ৳{paymentType === 'security_advance' ? remainingDueAmount : advancePaidAmount}
+                        ৳{!isPaymentMethodSelected
+                          ? totalAmount
+                          : paymentType === 'cod'
+                            ? totalAmount
+                            : paymentType === 'security_advance'
+                              ? remainingDueAmount
+                              : advancePaidAmount}
                       </span>
-                      {paymentType === 'security_advance' ? (
+                      {isPaymentMethodSelected && paymentType === 'security_advance' && (
                         <span className="text-xs text-slate-300 font-semibold">
-                          (Advance: ৳{advancePaidAmount})
+                          (Pay Now Advance: ৳{advancePaidAmount})
                         </span>
-                      ) : (
+                      )}
+                      {isPaymentMethodSelected && paymentType === 'full_payment' && (
                         <span className="text-xs text-emerald-300 font-semibold">
                           (Full Payment with Discount)
                         </span>
@@ -2256,9 +2233,24 @@ export const CheckoutModal: React.FC = () => {
 
                   <button
                     type="submit"
-                    className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-400 via-teal-400 to-[#38BDF8] text-slate-950 font-black text-xs sm:text-sm shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    disabled={!isPaymentMethodSelected}
+                    className={`px-5 py-3 rounded-xl font-black text-xs sm:text-sm shadow-lg transition-all flex items-center justify-center gap-2 ${
+                      !isPaymentMethodSelected
+                        ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-emerald-400 via-teal-400 to-[#38BDF8] text-slate-950 hover:scale-105 active:scale-95 cursor-pointer'
+                    }`}
                   >
-                    {paymentType === 'security_advance' ? (
+                    {!isPaymentMethodSelected ? (
+                      <>
+                        <span>Select Payment Method First</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    ) : paymentType === 'cod' ? (
+                      <>
+                        <span>Place Order (৳{totalAmount})</span>
+                        <CheckCircle className="w-4 h-4" />
+                      </>
+                    ) : paymentType === 'security_advance' ? (
                       <>
                         <span>Confirm Order & Pay ৳{advancePaidAmount} Advance</span>
                         <CheckCircle className="w-4 h-4" />

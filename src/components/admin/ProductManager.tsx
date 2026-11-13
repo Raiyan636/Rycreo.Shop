@@ -31,11 +31,49 @@ import { useToast } from '../common/Toast';
 import { compressImage } from '../../utils/imageCompressor';
 import { uploadImageToStorage } from '../../storageService';
 
+import { computeAutoTotalStock } from '../../utils/stockHelper';
+
 type FormTab = 'basic' | 'images' | 'pricing' | 'variations_and_stock' | 'shipping' | 'seo';
 
 export const ProductManager: React.FC = () => {
-  const { products, categories, attributes, addProduct, updateProduct, deleteProduct, deleteProducts, moveProduct, updateProductPosition, isLoading, error } = useStore();
+  const { products, categories, attributes, storeConfig, updateStoreConfig, addProduct, updateProduct, deleteProduct, deleteProducts, moveProduct, updateProductPosition, isLoading, error } = useStore();
   const { showToast } = useToast();
+
+  // Our Products Storefront Grid Layout Controls
+  const [layoutMaxRows, setLayoutMaxRows] = useState<number>(
+    storeConfig.sectionLayouts?.ourProducts?.maxRows ?? 4
+  );
+  const [layoutMobileRows, setLayoutMobileRows] = useState<number>(
+    storeConfig.sectionLayouts?.ourProducts?.mobileMaxRows ?? 4
+  );
+  const [layoutDesktopCols, setLayoutDesktopCols] = useState<number>(
+    storeConfig.sectionLayouts?.ourProducts?.desktopColumns ?? 4
+  );
+  const [layoutMaxPerRow, setLayoutMaxPerRow] = useState<number>(
+    storeConfig.sectionLayouts?.ourProducts?.maxItemsPerRow ?? 20
+  );
+
+  const handleSaveGridLayout = () => {
+    const existingLayouts = storeConfig.sectionLayouts || {
+      ourProducts: { maxRows: 4, mobileMaxRows: 4, desktopColumns: 4, mobileColumns: 2, maxItemsPerRow: 20, autoSingleRowThreshold: 3 },
+      preOrder: { maxRows: 3, mobileMaxRows: 4, desktopColumns: 4, mobileColumns: 2, maxItemsPerRow: 20, autoSingleRowThreshold: 3 },
+      buyMore: { maxRows: 2, mobileMaxRows: 2, desktopColumns: 4, mobileColumns: 2, maxItemsPerRow: 20, autoSingleRowThreshold: 4 },
+    };
+    updateStoreConfig({
+      sectionLayouts: {
+        ...existingLayouts,
+        ourProducts: {
+          ...existingLayouts.ourProducts,
+          maxRows: Math.min(20, Math.max(1, Number(layoutMaxRows) || 4)),
+          mobileMaxRows: Math.min(20, Math.max(1, Number(layoutMobileRows) || 4)),
+          desktopColumns: Math.min(6, Math.max(2, Number(layoutDesktopCols) || 4)),
+          mobileColumns: existingLayouts.ourProducts?.mobileColumns ?? 2,
+          maxItemsPerRow: Math.min(50, Math.max(4, Number(layoutMaxPerRow) || 20)),
+        },
+      },
+    });
+    showToast('Our Products storefront grid layout saved!', 'success');
+  };
 
   const submitLockRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,6 +93,7 @@ export const ProductManager: React.FC = () => {
 
   // Form State - Basic
   const [title, setTitle] = useState('');
+  const [titleBn, setTitleBn] = useState('');
   const [slug, setSlug] = useState('');
   const [category, setCategory] = useState('Clothing');
   const [subcategory, setSubcategory] = useState('');
@@ -63,6 +102,16 @@ export const ProductManager: React.FC = () => {
   const [productCode, setProductCode] = useState('');
   const [tagline, setTagline] = useState('');
   const [description, setDescription] = useState('');
+  const [descriptionBn, setDescriptionBn] = useState('');
+
+  // Pre-Order Management State
+  const [availability, setAvailability] = useState<'available' | 'preorder'>('available');
+  const [preOrderDays, setPreOrderDays] = useState<number>(20);
+  const [preOrderQuantityLimit, setPreOrderQuantityLimit] = useState<number | ''>('');
+
+  // Wholesale & Reseller State
+  const [wholesalePrice, setWholesalePrice] = useState<number | ''>('');
+  const [resellerPrice, setResellerPrice] = useState<number | ''>('');
 
   // Form State - Images
   const [images, setImages] = useState<string[]>([]);
@@ -235,12 +284,19 @@ export const ProductManager: React.FC = () => {
 
   const resetForm = () => {
     setTitle('');
+    setTitleBn('');
     setSlug('');
     setCategory('Clothing');
     setSubcategory('');
     setBrand('RycreoShop');
     setSku('');
     setDescription('');
+    setDescriptionBn('');
+    setAvailability('available');
+    setPreOrderDays(20);
+    setPreOrderQuantityLimit('');
+    setWholesalePrice('');
+    setResellerPrice('');
     setImages([]);
     setVideoUrl('');
     setPrice(1500);
@@ -300,12 +356,19 @@ export const ProductManager: React.FC = () => {
     }
     setEditingProduct(p);
     setTitle(p.title);
+    setTitleBn(p.titleBn || '');
     setSlug(p.slug || '');
     setCategory(p.category);
     setSubcategory(p.subcategory || '');
     setBrand(p.brand || 'RycreoShop');
     setSku(p.sku || '');
     setDescription(p.description || '');
+    setDescriptionBn(p.descriptionBn || '');
+    setAvailability(p.availability || (p.isPreOrder ? 'preorder' : 'available'));
+    setPreOrderDays(p.preOrderDays || 20);
+    setPreOrderQuantityLimit(p.preOrderQuantityLimit ?? '');
+    setWholesalePrice(p.wholesalePrice ?? '');
+    setResellerPrice(p.resellerPrice ?? '');
     setImages(p.images || []);
     setVideoUrl(p.videoUrl || '');
     setPrice(p.price);
@@ -369,13 +432,18 @@ export const ProductManager: React.FC = () => {
         }
       });
     } else {
-      // If no variations array exists yet, default all sizes enabled for all colors
+      // If no variations array exists yet, initialize sizes or color-only 'Standard' stock
       prodColors.forEach(col => {
         if (initialVarMap[col.name]) {
-          initialVarMap[col.name].activeSizes = prodSizes.map(s => s.size);
-          prodSizes.forEach(s => {
-            initialVarMap[col.name].stock[s.size] = s.stock ?? 10;
-          });
+          if (prodSizes.length > 0) {
+            initialVarMap[col.name].activeSizes = prodSizes.map(s => s.size);
+            prodSizes.forEach(s => {
+              initialVarMap[col.name].stock[s.size] = s.stock ?? 10;
+            });
+          } else {
+            initialVarMap[col.name].activeSizes = ['Standard'];
+            initialVarMap[col.name].stock['Standard'] = col.stock ?? 10;
+          }
         }
       });
     }
@@ -630,7 +698,13 @@ export const ProductManager: React.FC = () => {
         });
     } else if (enableColorVariant) {
         colors.forEach(col => {
-            const stockVal = variantQuantities[col.name]?.stock?.['Standard'] ?? (variantQuantities[col.name] ? Object.values(variantQuantities[col.name].stock || {}).reduce((s, v) => s + (Number(v) || 0), 0) : 10);
+            const explicitStandard = variantQuantities[col.name]?.stock?.['Standard'];
+            const sumMap = variantQuantities[col.name]
+              ? Object.values(variantQuantities[col.name].stock || {}).reduce((s, v) => s + (Number(v) || 0), 0)
+              : undefined;
+            const stockVal = explicitStandard !== undefined
+              ? explicitStandard
+              : (col.stock !== undefined ? col.stock : (sumMap ?? 10));
             const numStock = Math.max(0, Number(stockVal) || 0);
             finalVariations.push({
                 id: `var-${col.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
@@ -741,6 +815,7 @@ export const ProductManager: React.FC = () => {
         const updatedPayload = {
           ...editingProduct,
           title: title.trim(),
+          titleBn: titleBn.trim() || undefined,
           slug: finalSlug,
           category,
           subcategory: subcategory.trim() || undefined,
@@ -748,6 +823,12 @@ export const ProductManager: React.FC = () => {
           sku: sku.trim() || undefined,
           price,
           salePrice,
+          wholesalePrice: wholesalePrice !== '' ? Number(wholesalePrice) : undefined,
+          resellerPrice: resellerPrice !== '' ? Number(resellerPrice) : undefined,
+          availability,
+          isPreOrder: availability === 'preorder',
+          preOrderDays: Number(preOrderDays) || 20,
+          preOrderQuantityLimit: preOrderQuantityLimit !== '' ? Number(preOrderQuantityLimit) : undefined,
           images: finalImages,
           videoUrl: videoUrl.trim() || undefined,
           sizes: finalSizes,
@@ -756,6 +837,7 @@ export const ProductManager: React.FC = () => {
           hasColorVariants: finalHasColorVariants,
           variations: finalVariations,
           description: description.trim(),
+          descriptionBn: descriptionBn.trim() || undefined,
           isFestiveSpecial,
           isPujaSpecial: isFestiveSpecial,
           discountBadge: computedDiscountBadge,
@@ -795,6 +877,7 @@ export const ProductManager: React.FC = () => {
         console.log(`[ProductManager handleSave] Adding new product: "${title.trim()}"`);
         const newProductPayload = {
           title: title.trim(),
+          titleBn: titleBn.trim() || undefined,
           slug: finalSlug,
           category,
           subcategory: subcategory.trim() || undefined,
@@ -802,6 +885,12 @@ export const ProductManager: React.FC = () => {
           sku: sku.trim() || undefined,
           price,
           salePrice,
+          wholesalePrice: wholesalePrice !== '' ? Number(wholesalePrice) : undefined,
+          resellerPrice: resellerPrice !== '' ? Number(resellerPrice) : undefined,
+          availability,
+          isPreOrder: availability === 'preorder',
+          preOrderDays: Number(preOrderDays) || 20,
+          preOrderQuantityLimit: preOrderQuantityLimit !== '' ? Number(preOrderQuantityLimit) : undefined,
           rating: Number(Number(rating).toFixed(2)),
           reviewCount: 0,
           images: finalImages,
@@ -812,6 +901,7 @@ export const ProductManager: React.FC = () => {
           hasColorVariants: finalHasColorVariants,
           variations: finalVariations,
           description: description.trim(),
+          descriptionBn: descriptionBn.trim() || undefined,
           isFestiveSpecial,
           isPujaSpecial: isFestiveSpecial,
           discountBadge: computedDiscountBadge,
@@ -987,6 +1077,84 @@ export const ProductManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Storefront Grid Rows & Columns Settings (Our Products Section) */}
+      <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h4 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5 text-[#38BDF8]" />
+              <span>Storefront Catalog Grid Rows &amp; Columns ("Curated Lifestyle Catalog")</span>
+            </h4>
+            <p className="text-[11px] text-slate-400">
+              Control how many rows/lines display on Desktop &amp; Mobile, columns per row, and maximum items per row before horizontal scroll.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveGridLayout}
+            className="px-3.5 py-2 rounded-xl bg-slate-700 hover:bg-[#38BDF8] hover:text-slate-950 text-white text-xs font-extrabold transition-colors cursor-pointer whitespace-nowrap self-start sm:self-auto"
+          >
+            Save Grid Layout
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 border-t border-slate-700/60">
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+              Desktop Rows (সারি)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={layoutMaxRows}
+              onChange={(e) => setLayoutMaxRows(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+              Mobile Rows (মোবাইল লাইন)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={layoutMobileRows}
+              onChange={(e) => setLayoutMobileRows(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+              Desktop Columns / Row
+            </label>
+            <select
+              value={layoutDesktopCols}
+              onChange={(e) => setLayoutDesktopCols(Number(e.target.value))}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+            >
+              {[2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n} Columns / Row</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 block mb-1">
+              Max Items / Row (সর্বোচ্চ)
+            </label>
+            <input
+              type="number"
+              min={4}
+              max={50}
+              value={layoutMaxPerRow}
+              onChange={(e) => setLayoutMaxPerRow(Math.min(50, Math.max(4, Number(e.target.value) || 20)))}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-[#38BDF8]"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* WooCommerce-Style Product Form Modal */}
       {isFormOpen && (
         <form id="product-edit-form" onSubmit={handleSave} className="bg-slate-800/98 border border-slate-700 p-5 sm:p-6 rounded-2xl space-y-5 animate-fade-in shadow-2xl">
@@ -1055,20 +1223,109 @@ export const ProductManager: React.FC = () => {
           {activeTab === 'basic' && (
             <div className="space-y-4 animate-fade-in">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-slate-300 block mb-1">Product Title *</label>
-                  <input 
-                    type="text"
-                    value={title}
-                    onChange={(e) => {
-                      setTitle(e.target.value);
-                      if (!editingProduct) {
-                        setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
-                      }
-                    }}
-                    placeholder="Royal Festive Edition Fusion Kurta Shirt"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
-                  />
+                <div className="md:col-span-2 space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1">Product Title (English) *</label>
+                    <input 
+                      type="text"
+                      value={title}
+                      onChange={(e) => {
+                        setTitle(e.target.value);
+                        if (!editingProduct) {
+                          setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+                        }
+                      }}
+                      placeholder="Royal Festive Edition Fusion Kurta Shirt"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-[#38BDF8] block mb-1">Product Title (বাংলা / Bengali)</label>
+                    <input 
+                      type="text"
+                      value={titleBn}
+                      onChange={(e) => setTitleBn(e.target.value)}
+                      placeholder="যেমন: প্রিমিয়াম ফেসিভ ফিউশন পাঞ্জাবি কুর্তা"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8] font-bengali"
+                    />
+                  </div>
+
+                  {/* Product Availability & Pre-Order System */}
+                  <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-950/60 to-slate-900 border border-blue-800/50 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          Product Availability (প্রোডাক্ট প্রাপ্যতা):
+                        </span>
+                        <p className="text-[11px] text-slate-400">
+                          Choose between standard in-stock inventory or custom pre-order with arrival countdown.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setAvailability('available')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            availability === 'available'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Available Now (ইন-স্টক)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAvailability('preorder')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            availability === 'preorder'
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Pre-Order (প্রি-অর্ডার)
+                        </button>
+                      </div>
+                    </div>
+
+                    {availability === 'preorder' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-blue-900/40">
+                        <div>
+                          <label className="text-xs font-bold text-blue-300 block mb-1">
+                            Expected Arrival Days (দিন) *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="180"
+                            value={preOrderDays}
+                            onChange={(e) => setPreOrderDays(Math.max(1, parseInt(e.target.value) || 20))}
+                            className="w-full bg-slate-900 border border-blue-500/50 rounded-xl p-2 text-xs text-white outline-none focus:ring-1 focus:ring-blue-400 font-mono"
+                            placeholder="20"
+                          />
+                          <p className="text-[10px] text-blue-300/80 mt-1">
+                            Customer sees: &quot;You will receive it in about {preOrderDays} days&quot; / &quot;আপনি এটি প্রায় {preOrderDays} দিনে হাতে পাবেন।&quot;
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold text-slate-300 block mb-1">
+                            Pre-Order Max Limit Per Order (ঐচ্ছিক)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={preOrderQuantityLimit}
+                            onChange={(e) => setPreOrderQuantityLimit(e.target.value === '' ? '' : parseInt(e.target.value) || 1)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white outline-none"
+                            placeholder="e.g. 5 (Leave empty for no limit)"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -1205,15 +1462,28 @@ export const ProductManager: React.FC = () => {
                   />
                 </div>
 
-                <div className="md:col-span-3">
-                  <label className="text-xs font-bold text-slate-300 block mb-1">Product Description</label>
-                  <textarea 
-                    rows={3}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Provide a luxurious description highlighting craftsmanship, materials, styling tips..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
-                  />
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1">Product Description (English)</label>
+                    <textarea 
+                      rows={3}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Provide a luxurious description highlighting craftsmanship, materials, styling tips..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-[#38BDF8] block mb-1">Product Description (বাংলা / Bengali)</label>
+                    <textarea 
+                      rows={3}
+                      value={descriptionBn}
+                      onChange={(e) => setDescriptionBn(e.target.value)}
+                      placeholder="পণ্যের গুণমান, উপাদান, ব্যবহারের নিয়ম ও বিশেষ বৈশিষ্ট্য বাংলায় লিখুন..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#38BDF8] font-bengali"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1314,6 +1584,30 @@ export const ProductManager: React.FC = () => {
                     onChange={(e) => setTag(e.target.value)}
                     placeholder="Bestseller, New Drop, Luxury"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-emerald-400 block mb-1">Wholesale Price (৳) (পাইকারি মূল্য)</label>
+                  <input 
+                    type="number"
+                    min={0}
+                    value={wholesalePrice}
+                    onChange={(e) => setWholesalePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="Optional wholesale rate"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-indigo-400 block mb-1">Reseller Price (৳) (রিসেলার মূল্য)</label>
+                  <input 
+                    type="number"
+                    min={0}
+                    value={resellerPrice}
+                    onChange={(e) => setResellerPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="Optional reseller rate"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white outline-none focus:border-indigo-400 font-mono"
                   />
                 </div>
 
@@ -1629,24 +1923,79 @@ export const ProductManager: React.FC = () => {
                 </div>
               )}
               
-              {/* Matrix Configuration Table */}
-              <div className="bg-slate-800/90 p-4 rounded-2xl border border-slate-700 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                        <span>Color × Size Stock Matrix</span>
-                        <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-2 py-0.5 rounded-full border border-sky-500/30">Independent Inventory</span>
-                      </h5>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        Enable or disable specific sizes per color and define exact stock quantities. A size marked 0 is Out of Stock; unchecked sizes are completely excluded from purchase.
-                      </p>
-                    </div>
-                  </div>
+              {/* Per-Variant Stock Matrix / Color / Size Editor */}
+              {(() => {
+                const liveAutoTotal = (enableColorVariant && enableSizeVariant)
+                  ? colors.reduce((total, c) => {
+                      const colData = variantQuantities[c.name] || { activeSizes: [], stock: {} };
+                      const activeSizesList = colData.activeSizes || [];
+                      return total + activeSizesList.reduce((sSum, sz) => sSum + Math.max(0, Number(colData.stock?.[sz] ?? 0)), 0);
+                    }, 0)
+                  : enableColorVariant
+                    ? colors.reduce((total, c) => {
+                        const colQty = variantQuantities[c.name]?.stock?.['Standard'] ?? c.stock ?? 0;
+                        return total + Math.max(0, Number(colQty));
+                      }, 0)
+                    : enableSizeVariant
+                      ? sizes.reduce((total, s) => total + Math.max(0, Number(s.stock ?? 0)), 0)
+                      : computeAutoTotalStock({ stock });
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-slate-300 border-collapse">
-                        <thead>
-                            <tr className="border-b border-slate-700 bg-slate-900/80">
+                const displayTotal = manualStockInputEnabled && typeof manualMasterStock === 'number' && !isNaN(manualMasterStock)
+                  ? Math.max(0, manualMasterStock)
+                  : liveAutoTotal;
+
+                return (
+                  <div className="bg-slate-800/90 p-4 rounded-2xl border border-slate-700 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-700/80">
+                      <div>
+                        <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                          <span>
+                            {enableColorVariant && enableSizeVariant
+                              ? 'Color × Size Stock Matrix'
+                              : enableColorVariant
+                                ? 'Per-Color Stock Allocation'
+                                : enableSizeVariant
+                                  ? 'Per-Size Stock Allocation'
+                                  : 'Standard Inventory Summary'}
+                          </span>
+                          <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-2 py-0.5 rounded-full border border-sky-500/30">
+                            Independent Inventory
+                          </span>
+                        </h5>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {enableColorVariant && enableSizeVariant
+                            ? 'Enable or disable specific sizes per color and define exact stock pieces. 0 = Out of Stock, 1–4 pcs = Low Stock.'
+                            : enableColorVariant
+                              ? 'Set exact piece count for each Color variant independently. Parent total stock auto-calculates.'
+                              : enableSizeVariant
+                                ? 'Set exact piece count for each Size independently. Parent total stock auto-calculates.'
+                                : 'Master Stock above directly controls inventory for this simple product.'}
+                        </p>
+                      </div>
+
+                      <div className={`px-3 py-1.5 rounded-xl border text-xs font-black font-mono flex items-center gap-2 shrink-0 ${
+                        displayTotal <= 0
+                          ? 'bg-rose-950/80 border-rose-600/50 text-rose-300'
+                          : displayTotal < 5
+                            ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                            : 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      }`}>
+                        <span className="text-[10px] uppercase tracking-wider font-sans text-slate-300">Auto-Calculated Total Stock:</span>
+                        <span>{displayTotal} pcs</span>
+                      </div>
+                    </div>
+
+                    {/* Case A: Color x Size Matrix */}
+                    {enableColorVariant && enableSizeVariant && (
+                      colors.length === 0 || sizes.length === 0 ? (
+                        <div className="p-4 rounded-xl bg-slate-900/70 border border-dashed border-slate-700 text-center text-xs text-slate-400">
+                          Add at least one Color and one Size in the <strong>Attributes</strong> tab to manage the Color × Size piece matrix.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-slate-300 border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-700 bg-slate-900/80">
                                 <th className="p-2.5 text-left font-black uppercase text-[10px] text-slate-400">Color Variant</th>
                                 <th className="p-2.5 text-center font-black uppercase text-[10px] text-slate-400">Quick Controls</th>
                                 {sizes.map(s => (
@@ -1655,148 +2004,262 @@ export const ProductManager: React.FC = () => {
                                   </th>
                                 ))}
                                 <th className="p-2.5 text-center font-black uppercase text-[10px] text-amber-400">Color Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {colors.map(c => {
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {colors.map(c => {
                                 const colData = variantQuantities[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
                                 const activeSizesList = colData.activeSizes || [];
                                 const colorStockSum = activeSizesList.reduce((sum, sz) => sum + (colData.stock?.[sz] || 0), 0);
 
                                 return (
-                                <tr key={c.name} className="hover:bg-slate-800/50 transition-colors">
+                                  <tr key={c.name} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800/60">
                                     <td className="p-2.5 font-bold flex items-center gap-2.5 min-w-[140px]">
-                                        <div className="w-5 h-5 rounded-full border border-slate-500 shadow-xs shrink-0" style={{ backgroundColor: c.hex || '#000' }} />
-                                        {c.image && <img src={c.image} alt={c.name} className="w-7 h-7 rounded object-cover border border-slate-700 bg-slate-900 shrink-0" />}
-                                        <div>
-                                          <p className="text-xs text-white font-extrabold leading-none">{c.name}</p>
-                                          <span className={`text-[9px] font-bold ${c.enabled !== false ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                            {c.enabled !== false ? 'Active' : 'Disabled'}
-                                          </span>
-                                        </div>
+                                      <div className="w-5 h-5 rounded-full border border-slate-500 shadow-xs shrink-0" style={{ backgroundColor: c.hex || '#000' }} />
+                                      {c.image && <img src={c.image} alt={c.name} className="w-7 h-7 rounded object-cover border border-slate-700 bg-slate-900 shrink-0" />}
+                                      <div>
+                                        <p className="text-xs text-white font-extrabold leading-none">{c.name}</p>
+                                        <span className={`text-[9px] font-bold ${c.enabled !== false ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                          {c.enabled !== false ? 'Active' : 'Disabled'}
+                                        </span>
+                                      </div>
                                     </td>
 
                                     <td className="p-2 text-center whitespace-nowrap">
-                                        <div className="inline-flex items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const allSizes = sizes.map(s => s.size);
-                                              setVariantQuantities(prev => {
-                                                const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
-                                                const updatedStock = { ...prevData.stock };
-                                                allSizes.forEach(sz => {
-                                                  if (updatedStock[sz] === undefined || updatedStock[sz] === 0) {
-                                                    updatedStock[sz] = 10;
-                                                  }
-                                                });
-                                                return {
-                                                  ...prev,
-                                                  [c.name]: { ...prevData, activeSizes: allSizes, stock: updatedStock }
-                                                };
+                                      <div className="inline-flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const allSizes = sizes.map(s => s.size);
+                                            setVariantQuantities(prev => {
+                                              const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
+                                              const updatedStock = { ...prevData.stock };
+                                              allSizes.forEach(sz => {
+                                                if (updatedStock[sz] === undefined || updatedStock[sz] === 0) {
+                                                  updatedStock[sz] = 10;
+                                                }
                                               });
-                                            }}
-                                            className="px-1.5 py-0.5 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-700/50 text-[9px] font-bold cursor-pointer"
-                                            title="Enable all sizes for this color"
-                                          >
-                                            All On
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setVariantQuantities(prev => {
-                                                const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
-                                                return {
-                                                  ...prev,
-                                                  [c.name]: { ...prevData, activeSizes: [] }
-                                                };
-                                              });
-                                            }}
-                                            className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[9px] font-bold cursor-pointer"
-                                            title="Disable all sizes for this color"
-                                          >
-                                            All Off
-                                          </button>
-                                        </div>
+                                              return {
+                                                ...prev,
+                                                [c.name]: { ...prevData, activeSizes: allSizes, stock: updatedStock }
+                                              };
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-700/50 text-[9px] font-bold cursor-pointer"
+                                          title="Enable all sizes for this color"
+                                        >
+                                          All On
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setVariantQuantities(prev => {
+                                              const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
+                                              return {
+                                                ...prev,
+                                                [c.name]: { ...prevData, activeSizes: [] }
+                                              };
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[9px] font-bold cursor-pointer"
+                                          title="Disable all sizes for this color"
+                                        >
+                                          All Off
+                                        </button>
+                                      </div>
                                     </td>
 
                                     {sizes.map(s => {
-                                        const isActive = activeSizesList.includes(s.size);
-                                        const currentStock = colData.stock?.[s.size] ?? 0;
+                                      const isActive = activeSizesList.includes(s.size);
+                                      const currentStock = colData.stock?.[s.size] ?? 0;
 
-                                        return (
-                                            <td key={`${c.name}-${s.size}`} className={`p-2 text-center transition-colors ${isActive ? 'bg-sky-950/20' : 'bg-slate-950/40 opacity-50'}`}>
-                                                <div className="flex flex-col items-center gap-1.5 min-w-[70px]">
-                                                    <label className="flex items-center gap-1 cursor-pointer">
-                                                      <input 
-                                                        type="checkbox" 
-                                                        checked={isActive} 
-                                                        onChange={(e) => {
-                                                          const active = e.target.checked;
-                                                          setVariantQuantities(prev => {
-                                                              const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
-                                                              const prevActiveSizes = prevData.activeSizes || [];
-                                                              const newActiveSizes = active 
-                                                                  ? [...prevActiveSizes, s.size]
-                                                                  : prevActiveSizes.filter(sz => sz !== s.size);
-                                                              const newStock = { ...prevData.stock };
-                                                              if (active && (newStock[s.size] === undefined)) {
-                                                                newStock[s.size] = 10;
-                                                              }
-                                                              return {
-                                                                  ...prev,
-                                                                  [c.name]: { ...prevData, activeSizes: newActiveSizes, stock: newStock }
-                                                              };
-                                                          });
-                                                        }} 
-                                                        className="w-4 h-4 rounded accent-emerald-500 cursor-pointer" 
-                                                      />
-                                                      <span className="text-[10px] font-bold text-slate-300">{isActive ? 'ON' : 'OFF'}</span>
-                                                    </label>
+                                      return (
+                                        <td key={`${c.name}-${s.size}`} className={`p-2 text-center transition-colors ${isActive ? 'bg-sky-950/20' : 'bg-slate-950/40 opacity-50'}`}>
+                                          <div className="flex flex-col items-center gap-1.5 min-w-[70px]">
+                                            <label className="flex items-center gap-1 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={isActive}
+                                                onChange={(e) => {
+                                                  const active = e.target.checked;
+                                                  setVariantQuantities(prev => {
+                                                    const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
+                                                    const prevActiveSizes = prevData.activeSizes || [];
+                                                    const newActiveSizes = active
+                                                      ? [...prevActiveSizes, s.size]
+                                                      : prevActiveSizes.filter(sz => sz !== s.size);
+                                                    const newStock = { ...prevData.stock };
+                                                    if (active && newStock[s.size] === undefined) {
+                                                      newStock[s.size] = 10;
+                                                    }
+                                                    return {
+                                                      ...prev,
+                                                      [c.name]: { ...prevData, activeSizes: newActiveSizes, stock: newStock }
+                                                    };
+                                                  });
+                                                }}
+                                                className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                                              />
+                                              <span className="text-[10px] font-bold text-slate-300">{isActive ? 'ON' : 'OFF'}</span>
+                                            </label>
 
-                                                    {isActive ? (
-                                                        <div className="flex items-center gap-1">
-                                                          <input 
-                                                              type="number"
-                                                              min={0}
-                                                              className="w-14 bg-slate-950 border border-slate-700 focus:border-[#38BDF8] rounded p-1 text-center font-mono font-bold text-xs text-white outline-none"
-                                                              placeholder="0"
-                                                              value={currentStock}
-                                                              onChange={(e) => {
-                                                                  const val = Math.max(0, parseInt(e.target.value) || 0);
-                                                                  setVariantQuantities(prev => {
-                                                                      const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
-                                                                      return {
-                                                                          ...prev,
-                                                                          [c.name]: { 
-                                                                              ...prevData,
-                                                                              stock: { ...prevData.stock, [s.size]: val }
-                                                                          }
-                                                                      };
-                                                                  });
-                                                              }}
-                                                          />
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-[9px] text-slate-500 italic py-1">Excluded</span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        );
+                                            {isActive ? (
+                                              <div className="flex flex-col items-center gap-0.5">
+                                                <input
+                                                  type="number"
+                                                  min={0}
+                                                  className={`w-14 bg-slate-950 border rounded p-1 text-center font-mono font-bold text-xs text-white outline-none ${
+                                                    currentStock <= 0
+                                                      ? 'border-rose-600/70'
+                                                      : currentStock < 5
+                                                        ? 'border-amber-500/70'
+                                                        : 'border-slate-700 focus:border-[#38BDF8]'
+                                                  }`}
+                                                  placeholder="0"
+                                                  value={currentStock}
+                                                  onChange={(e) => {
+                                                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                                                    setVariantQuantities(prev => {
+                                                      const prevData = prev[c.name] || { autoCalculate: false, activeSizes: [], stock: {}, lowStockAlert: 5 };
+                                                      return {
+                                                        ...prev,
+                                                        [c.name]: {
+                                                          ...prevData,
+                                                          stock: { ...prevData.stock, [s.size]: val }
+                                                        }
+                                                      };
+                                                    });
+                                                  }}
+                                                />
+                                                {currentStock > 0 && currentStock < 5 && (
+                                                  <span className="text-[8px] font-bold text-amber-400">Low Stock</span>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              <span className="text-[9px] text-slate-500 italic py-1">Excluded</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
                                     })}
 
                                     <td className="p-2 text-center whitespace-nowrap">
-                                        <span className={`inline-block px-2 py-1 rounded-lg text-xs font-black font-mono ${colorStockSum > 0 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/40' : 'bg-rose-950/80 text-rose-300 border border-rose-600/40'}`}>
-                                          {colorStockSum > 0 ? `${colorStockSum} pcs` : 'Out of Stock'}
-                                        </span>
+                                      <span className={`inline-block px-2 py-1 rounded-lg text-xs font-black font-mono ${
+                                        colorStockSum <= 0
+                                          ? 'bg-rose-950/80 text-rose-300 border border-rose-600/40'
+                                          : colorStockSum < 5
+                                            ? 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                                            : 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/40'
+                                      }`}>
+                                        {colorStockSum > 0 ? `${colorStockSum} pcs` : 'Out of Stock'}
+                                      </span>
                                     </td>
-                                </tr>
+                                  </tr>
                                 );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-              </div>
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    )}
+
+                    {/* Case B: Color-Only Stock Cards */}
+                    {enableColorVariant && !enableSizeVariant && (
+                      colors.length === 0 ? (
+                        <div className="p-4 rounded-xl bg-slate-900/70 border border-dashed border-slate-700 text-center text-xs text-slate-400">
+                          Add colors in the <strong>Attributes</strong> tab to assign per-color stock pieces.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {colors.map((c, idx) => {
+                            const colQty = Math.max(0, Number(variantQuantities[c.name]?.stock?.['Standard'] ?? c.stock ?? 0));
+                            return (
+                              <div key={c.name} className="bg-slate-900/90 border border-slate-700 rounded-xl p-3 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-6 h-6 rounded-full border border-slate-500 shrink-0" style={{ backgroundColor: c.hex || '#000' }} />
+                                  {c.image && <img src={c.image} alt={c.name} className="w-8 h-8 rounded object-cover border border-slate-700 shrink-0" />}
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-extrabold text-white truncate">{c.name}</p>
+                                    <span className={`text-[9px] font-bold ${
+                                      colQty <= 0 ? 'text-rose-400' : colQty < 5 ? 'text-amber-400' : 'text-emerald-400'
+                                    }`}>
+                                      {colQty <= 0 ? 'Out of Stock' : colQty < 5 ? 'Low Stock (< 5)' : 'In Stock'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={colQty}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, parseInt(e.target.value) || 0);
+                                      setVariantQuantities(prev => {
+                                        const prevData = prev[c.name] || { autoCalculate: false, activeSizes: ['Standard'], stock: {}, lowStockAlert: 5 };
+                                        return {
+                                          ...prev,
+                                          [c.name]: {
+                                            ...prevData,
+                                            activeSizes: ['Standard'],
+                                            stock: { ...prevData.stock, Standard: val }
+                                          }
+                                        };
+                                      });
+                                      setColors(prev => prev.map((item, i) => (i === idx ? { ...item, stock: val } : item)));
+                                    }}
+                                    className="w-16 bg-slate-950 border border-slate-700 focus:border-[#38BDF8] rounded-lg p-1.5 text-center font-mono font-bold text-xs text-white outline-none"
+                                  />
+                                  <span className="text-[10px] font-bold text-slate-400">pcs</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    )}
+
+                    {/* Case C: Size-Only Stock Cards */}
+                    {!enableColorVariant && enableSizeVariant && (
+                      sizes.length === 0 ? (
+                        <div className="p-4 rounded-xl bg-slate-900/70 border border-dashed border-slate-700 text-center text-xs text-slate-400">
+                          Add sizes in the <strong>Attributes</strong> tab to assign per-size stock pieces.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {sizes.map((s, idx) => {
+                            const szQty = Math.max(0, Number(s.stock ?? 0));
+                            return (
+                              <div key={s.size} className="bg-slate-900/90 border border-slate-700 rounded-xl p-3 flex items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-extrabold text-white">Size {s.size}</p>
+                                  <span className={`text-[9px] font-bold ${
+                                    szQty <= 0 ? 'text-rose-400' : szQty < 5 ? 'text-amber-400' : 'text-emerald-400'
+                                  }`}>
+                                    {szQty <= 0 ? 'Out of Stock' : szQty < 5 ? 'Low Stock (< 5)' : 'In Stock'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={szQty}
+                                    onChange={(e) => {
+                                      const val = Math.max(0, parseInt(e.target.value) || 0);
+                                      setSizes(prev => prev.map((item, i) => (i === idx ? { ...item, stock: val } : item)));
+                                    }}
+                                    className="w-16 bg-slate-950 border border-slate-700 focus:border-[#38BDF8] rounded-lg p-1.5 text-center font-mono font-bold text-xs text-white outline-none"
+                                  />
+                                  <span className="text-[10px] font-bold text-slate-400">pcs</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Inventory Settings */}
               <div className="bg-slate-800/90 p-4 rounded-2xl border border-slate-700 space-y-3">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Trash2, ShoppingBag, ArrowRight, Tag, MessageSquare, Check, MapPin, AlertCircle, Truck } from 'lucide-react';
+import { X, Trash2, ShoppingBag, ArrowRight, Tag, MessageSquare, Check, MapPin, AlertCircle, Truck, Clock } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
+import { resolveStoreAssetUrl } from '../utils/clientAssetResolver';
 
 export const CartDrawer: React.FC = () => {
   const { 
@@ -12,7 +13,12 @@ export const CartDrawer: React.FC = () => {
     storeConfig,
     validateCoupon,
     setIsCheckoutOpen,
-    openOrderPolicyModal
+    setDirectCheckoutItem,
+    setDirectCheckoutItems,
+    setSelectedProduct,
+    closeVariantModal,
+    setSelectedPreOrderProduct,
+    setSelectedBuyMoreOffer
   } = useStore();
 
   const [promoInput, setPromoInput] = useState('');
@@ -144,13 +150,25 @@ export const CartDrawer: React.FC = () => {
               return (
                 <div key={`${varKey}-${idx}`} className="pt-3 flex gap-3.5 items-center">
                   <img 
-                    src={item.product.images[0]} 
-                    alt={item.product.title} 
+                    src={resolveStoreAssetUrl(item.product?.images?.[0])} 
+                    alt={item.product?.title || 'Product'} 
                     className="w-16 h-20 object-cover rounded-xl border border-slate-200 shrink-0"
                   />
                   
                   <div className="flex-1 min-w-0 space-y-1">
-                    <h4 className="font-bold text-slate-800 text-xs truncate">{item.product.title}</h4>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(item.isPreOrder || item.product?.isPreOrder || item.product?.availability === 'preorder') && (
+                        <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider shrink-0">
+                          PRE-ORDER
+                        </span>
+                      )}
+                      {(item.isBuyMoreOffer || item.product?.isBuyMoreOffer) && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[9px] font-black uppercase tracking-wider shrink-0">
+                          BUY 1 GET MORE
+                        </span>
+                      )}
+                      <h4 className="font-bold text-slate-800 text-xs truncate">{item.product.title}</h4>
+                    </div>
                     
                     <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                       {item.selectedSize && (
@@ -256,11 +274,25 @@ export const CartDrawer: React.FC = () => {
               </div>
             </div>
 
+            {/* Pre-Order Advance Reminder */}
+            {cart.some(it => it.isPreOrder || it.product?.isPreOrder || it.product?.availability === 'preorder') && (
+              <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>Pre-order items require advance payment at checkout (COD disabled).</span>
+              </div>
+            )}
+
             {/* Primary Actions */}
             <div className="space-y-2 pt-1">
               <button
                 type="button"
                 onClick={() => {
+                  setDirectCheckoutItem(null);
+                  setDirectCheckoutItems([]);
+                  setSelectedProduct(null);
+                  closeVariantModal();
+                  setSelectedPreOrderProduct(null);
+                  setSelectedBuyMoreOffer(null);
                   setIsCartOpen(false);
                   setIsCheckoutOpen(true);
                 }}

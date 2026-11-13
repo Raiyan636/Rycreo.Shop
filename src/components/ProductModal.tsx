@@ -20,15 +20,19 @@ import {
   Trash2,
   PackageCheck,
   AlertCircle,
-  ZoomIn
+  ZoomIn,
+  Clock
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { CartItem, ProductVariation } from '../types/store';
 import { compressImage } from '../utils/imageCompressor';
 import { Header } from './Header';
 import { Footer } from './Footer';
+import { ProductCard } from './ProductCard';
+import { sortRelatedItems } from '../utils/relatedProducts';
 import { useToast } from './common/Toast';
 import { ReviewImageLightbox } from './common/ReviewImageLightbox';
+import { resolveStoreAssetUrl } from '../utils/clientAssetResolver';
 
 export const ProductModal: React.FC = () => {
   const { 
@@ -65,31 +69,34 @@ export const ProductModal: React.FC = () => {
   const hasVariations = !!(selectedProduct?.variations && selectedProduct.variations.length > 0);
   const variations = selectedProduct?.variations || [];
   const showColorSection = selectedProduct?.hasColorVariants !== false && availableColors.length > 0;
+  const isPreOrder = Boolean(selectedProduct?.availability === 'preorder' || selectedProduct?.isPreOrder);
+  const preOrderDays = selectedProduct?.preOrderDays || 20;
+  const displayedTitle = selectedProduct?.title || '';
+  const displayedDescription = selectedProduct?.description || '';
 
   // Comprehensive image list for modal: combines main product photos, all color variant photos, and galleries
   const modalImages = useMemo(() => {
     if (!selectedProduct) return [];
     const list: string[] = [];
+    const addUnique = (raw?: string) => {
+      if (!raw) return;
+      const resolved = resolveStoreAssetUrl(raw);
+      if (resolved && !list.includes(resolved)) list.push(resolved);
+    };
     if (selectedProduct.images && selectedProduct.images.length > 0) {
-      list.push(...selectedProduct.images);
+      selectedProduct.images.forEach(addUnique);
     }
     // Also include color specific images if not already in list
     (selectedProduct.colors || []).forEach(c => {
-      if (c.image && !list.includes(c.image)) {
-        list.push(c.image);
-      }
+      addUnique(c.image);
       if (Array.isArray(c.gallery)) {
-        c.gallery.forEach(g => {
-          if (g && !list.includes(g)) list.push(g);
-        });
+        c.gallery.forEach(addUnique);
       }
     });
     // Include variations images if any
     (selectedProduct.variations || []).forEach(v => {
       const vImg = (v as any).image;
-      if (vImg && !list.includes(vImg)) {
-        list.push(vImg);
-      }
+      addUnique(vImg);
     });
     return list.length > 0 ? list : [
       "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=800"
@@ -176,9 +183,11 @@ export const ProductModal: React.FC = () => {
 
   useEffect(() => {
     if (selectedProduct) {
-      if (modalContainerRef.current) {
-        modalContainerRef.current.scrollTo(0, 0);
-      }
+      requestAnimationFrame(() => {
+        if (modalContainerRef.current) {
+          modalContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+        }
+      });
       setActiveMediaIndex(0);
       setShowVideoModal(false);
       setShowReviewForm(false);
@@ -239,7 +248,8 @@ export const ProductModal: React.FC = () => {
     const foundCol = availableColors.find(c => c.name.toLowerCase() === activeColor.toLowerCase());
     const targetImg = foundCol?.image || (foundCol?.gallery && foundCol.gallery[0]);
     if (targetImg) {
-      const imgIdx = modalImages.findIndex(img => img === targetImg);
+      const resolved = resolveStoreAssetUrl(targetImg);
+      const imgIdx = modalImages.findIndex(img => img === resolved);
       if (imgIdx !== -1) {
         setActiveMediaIndex(imgIdx);
         setShowVideoModal(false);
@@ -247,9 +257,7 @@ export const ProductModal: React.FC = () => {
     }
   }, [activeColor, availableColors, modalImages]);
 
-  if (!selectedProduct) return null;
-
-  const isWishlisted = isInWishlist(selectedProduct.id);
+  const isWishlisted = selectedProduct ? isInWishlist(selectedProduct.id) : false;
 
   // Helper: Retrieve combination details
   const getCombinationDetails = (colorName: string, sizeName: string) => {
@@ -275,7 +283,7 @@ export const ProductModal: React.FC = () => {
       }
     }
 
-    let stock = selectedProduct.stock ?? 10;
+    let stock = selectedProduct?.stock ?? 0;
     if (cleanSz && availableSizes.length > 0) {
       const szObj = availableSizes.find(s => s.size === cleanSz);
       if (szObj) stock = szObj.stock;
@@ -284,17 +292,20 @@ export const ProductModal: React.FC = () => {
       if (colObj && colObj.stock !== undefined) stock = colObj.stock;
     }
 
-    const price = selectedProduct.salePrice > 0 ? selectedProduct.salePrice : selectedProduct.price;
+    const price = selectedProduct
+      ? (selectedProduct.salePrice > 0 ? selectedProduct.salePrice : selectedProduct.price)
+      : 0;
     return {
-      stock,
+      stock: Math.max(0, Number(stock) || 0),
       price,
-      regularPrice: selectedProduct.price,
+      regularPrice: selectedProduct?.price ?? 0,
       variation: undefined
     };
   };
 
   // Available sizes for active color
   const currentSizes = useMemo(() => {
+    if (!selectedProduct) return [];
     let activeColorStock = 0;
     if (hasVariations && variations.length > 0) {
       const matched = variations.filter(v => {
@@ -304,7 +315,7 @@ export const ProductModal: React.FC = () => {
       activeColorStock = matched.reduce((sum, v) => sum + (v.stock || 0), 0);
     } else {
       const col = availableColors.find(c => c.name === activeColor);
-      activeColorStock = col?.stock !== undefined ? col.stock : (selectedProduct.stock ?? 10);
+      activeColorStock = col?.stock !== undefined ? col.stock : (selectedProduct.stock ?? 0);
     }
 
     if (activeColorStock <= 0 && hasVariations && variations.length > 0) {
@@ -315,8 +326,8 @@ export const ProductModal: React.FC = () => {
     }
 
     if (activeColorStock <= 0 && availableSizes.length === 0 && (!hasVariations || variations.length === 0)) {
-      if ((selectedProduct.stock ?? 10) > 0) {
-        activeColorStock = selectedProduct.stock ?? 10;
+      if ((selectedProduct.stock ?? 0) > 0 && (!activeColor || availableColors.every(c => c.stock === undefined))) {
+        activeColorStock = selectedProduct.stock ?? 0;
       }
     }
 
@@ -374,7 +385,7 @@ export const ProductModal: React.FC = () => {
     }
 
     if (desiredQty > maxStock) {
-      setStockNotice('Stock limit reached! Maximum available stock reached for this variant.');
+      setStockNotice(`Only ${maxStock} pcs available for this selection!`);
       setVariantQuantities(prev => ({
         ...prev,
         [key]: maxStock
@@ -392,11 +403,11 @@ export const ProductModal: React.FC = () => {
     const key = `${colorName || 'default'}__${sizeName || 'default'}`;
     const current = variantQuantities[key] || 0;
     if (maxStock <= 0) {
-      setStockNotice('This variant is currently Stock Out!');
+      setStockNotice('This variant is currently Out of Stock!');
       return;
     }
     if (current >= maxStock) {
-      setStockNotice('Stock limit reached! Maximum available stock reached for this variant.');
+      setStockNotice(`Only ${maxStock} pcs available for this selection!`);
       return;
     }
     setVariantQuantities(prev => ({
@@ -432,6 +443,7 @@ export const ProductModal: React.FC = () => {
 
   // Compiled Cart Items across all colors and sizes
   const selectedLineItems: CartItem[] = useMemo(() => {
+    if (!selectedProduct) return [];
     const list: CartItem[] = [];
 
     Object.entries(variantQuantities).forEach(([key, qty]) => {
@@ -463,21 +475,31 @@ export const ProductModal: React.FC = () => {
   // Active color preview image
   const activeColorImage = activeColor && availableColors.find(c => c.name === activeColor)?.image
     ? availableColors.find(c => c.name === activeColor)?.image!
-    : selectedProduct.images[0];
+    : (selectedProduct?.images?.[0] || '');
 
   const stockInfo = useMemo(() => {
+    if (!selectedProduct) {
+      return {
+        totalStock: 0,
+        isOutOfStock: true,
+        isLowStock: false,
+        badgeText: 'Out of Stock',
+        badgeClass: '',
+      };
+    }
     return getProductStockStatus(selectedProduct, activeColor);
   }, [getProductStockStatus, selectedProduct, activeColor]);
 
   const { totalStock: totalProductStock, isOutOfStock: isProductOutOfStock, isLowStock: isProductLowStock, badgeText: stockBadgeText, badgeClass: stockBadgeClass } = stockInfo;
 
-  const hasDiscount = selectedProduct.salePrice > 0 && selectedProduct.salePrice < selectedProduct.price;
-  const discountPercent = hasDiscount 
+  const hasDiscount = Boolean(selectedProduct && selectedProduct.salePrice > 0 && selectedProduct.salePrice < selectedProduct.price);
+  const discountPercent = selectedProduct && hasDiscount 
     ? Math.round(((selectedProduct.price - selectedProduct.salePrice) / selectedProduct.price) * 100) 
     : 0;
 
   // Prominent dynamic discount badge (e.g. "50% OFF", "50% off", or calculated "-50% OFF")
   const displayedDiscountBadge = useMemo(() => {
+    if (!selectedProduct) return null;
     if (selectedProduct.discountBadge && selectedProduct.discountBadge.trim()) {
       return selectedProduct.discountBadge.trim();
     }
@@ -485,7 +507,30 @@ export const ProductModal: React.FC = () => {
       return `-${discountPercent}% OFF`;
     }
     return null;
-  }, [selectedProduct.discountBadge, hasDiscount, discountPercent]);
+  }, [selectedProduct?.discountBadge, hasDiscount, discountPercent]);
+
+  // Smart Related Products: same category & product-type (e.g., Watches) first, then others
+  const relatedProducts = useMemo(() => {
+    if (!selectedProduct) return [];
+    const others = products.filter((p) => p.id !== selectedProduct.id);
+    return sortRelatedItems(selectedProduct, others).slice(0, 10);
+  }, [products, selectedProduct]);
+
+  const approvedReviews = useMemo(() => {
+    if (!selectedProduct) return [];
+    return reviews
+      .filter(r => r.productId === selectedProduct.id && r.status === 'approved')
+      .sort((a, b) => {
+        const posA = a.position !== undefined ? a.position : (a.order !== undefined ? a.order : 9999);
+        const posB = b.position !== undefined ? b.position : (b.order !== undefined ? b.order : 9999);
+        if (posA !== posB) return posA - posB;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+  }, [reviews, selectedProduct?.id]);
+
+  if (!selectedProduct) return null;
 
   const displayedSold = (selectedProduct.baseSoldCount ?? (selectedProduct.soldCount ?? 0)) + (selectedProduct.realSalesCount ?? 0);
 
@@ -589,35 +634,19 @@ Please let me know if this is available and any details about pricing/delivery!`
     }, 2000);
   };
 
-  const approvedReviews = React.useMemo(() => {
-    return reviews
-      .filter(r => r.productId === selectedProduct.id && r.status === 'approved')
-      .sort((a, b) => {
-        // 1. Admin priority order if configured
-        const posA = a.position !== undefined ? a.position : (a.order !== undefined ? a.order : 9999);
-        const posB = b.position !== undefined ? b.position : (b.order !== undefined ? b.order : 9999);
-        if (posA !== posB) {
-          return posA - posB;
-        }
-        // 2. Default to Latest Review First (newest submitted review goes straight to the top)
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return timeB - timeA;
-      });
-  }, [reviews, selectedProduct.id]);
   const calculatedRating = approvedReviews.length > 0
     ? (approvedReviews.reduce((sum, r) => sum + r.rating, 0) / approvedReviews.length).toFixed(1)
     : null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
-      <div ref={modalContainerRef} className="min-h-screen w-full bg-[#F8FAFC] text-[#1E293B] flex flex-col relative animate-fade-in overflow-y-auto">
+    <div ref={modalContainerRef} className="fixed inset-0 z-[100] bg-[#ECF1F6] overflow-y-auto overscroll-contain">
+      <div className="min-h-screen w-full bg-[#ECF1F6] text-[#1E293B] flex flex-col relative animate-fade-in">
         {/* Navigation Bar */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:rounded-2xl bg-white border-b sm:border border-slate-100 shrink-0 shadow-2xs select-none">
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-5 py-3 bg-[#F8FAFC]/95 backdrop-blur-md border-b border-slate-200/80 shrink-0 shadow-2xs select-none">
           <button
             type="button"
             onClick={handleBackToStore}
-            className="flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-white hover:bg-slate-900 hover:text-white border border-slate-200 text-xs font-extrabold text-slate-800 transition-all cursor-pointer shadow-2xs active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-[#F8FAFC] hover:bg-slate-900 hover:text-white border border-slate-200 text-xs font-extrabold text-slate-800 transition-all cursor-pointer shadow-2xs active:scale-95"
           >
             <span>← Back to Store</span>
           </button>
@@ -644,7 +673,7 @@ Please let me know if this is available and any details about pricing/delivery!`
         </div>
 
         {/* 2-Column Split */}
-        <div className="bg-white sm:rounded-3xl sm:border border-slate-100 p-0 sm:p-8 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-0 md:gap-8 lg:gap-10">
+        <div className="bg-[#F8FAFC] sm:rounded-3xl sm:border border-slate-200/80 p-0 sm:p-8 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-0 md:gap-8 lg:gap-10">
           
           {/* Left Column: Media Gallery - Edge-to-Edge Full-Width Square Layout */}
           <div className="md:col-span-7 flex flex-col md:flex-row gap-0 md:gap-4">
@@ -760,6 +789,11 @@ Please let me know if this is available and any details about pricing/delivery!`
 
                 {/* Badges Overlay */}
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start z-10">
+                  {isPreOrder && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white text-[11px] font-extrabold uppercase shadow-lg animate-pulse-subtle">
+                      <Clock className="w-3.5 h-3.5" /> PRE-ORDER
+                    </span>
+                  )}
                   {selectedProduct.isPujaSpecial && (
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-[11px] font-extrabold uppercase shadow-lg">
                       <Sparkles className="w-3.5 h-3.5" /> PUJA SPECIAL
@@ -843,14 +877,49 @@ Please let me know if this is available and any details about pricing/delivery!`
 
               {/* Title & Code */}
               <h2 className="text-2xl font-extrabold text-slate-900 leading-tight font-['Outfit']">
-                {selectedProduct.title}
+                {displayedTitle}
               </h2>
               <div className="text-xs text-slate-500 font-medium flex items-center gap-2">
                 <span>Product Code: <strong className="font-mono text-slate-800">{selectedProduct.productCode || selectedProduct.sku || selectedProduct.id}</strong></span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${stockBadgeClass}`}>
-                  {stockBadgeText}
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isPreOrder ? 'bg-blue-50 text-blue-700 border-blue-200' : stockBadgeClass}`}>
+                  {isPreOrder ? 'Pre-Order Active' : stockBadgeText}
                 </span>
               </div>
+
+              {/* Pre-Order Expected Arrival Notification Box */}
+              {isPreOrder && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 border border-blue-200/90 shadow-sm flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <Clock className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-md inline-block">
+                      PRE-ORDER ESTIMATE
+                    </span>
+                    <p className="text-xs sm:text-sm font-extrabold text-blue-950 mt-0.5">
+                      Estimated arrival &amp; delivery in ~{preOrderDays} days
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Wholesale & Reseller Pricing */}
+              {(selectedProduct.wholesalePrice || selectedProduct.resellerPrice) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {selectedProduct.wholesalePrice && (
+                    <div className="px-2.5 py-1 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-bold">
+                      <span>Wholesale Rate: </span>
+                      <strong className="text-indigo-700 font-extrabold">৳{selectedProduct.wholesalePrice}</strong>
+                    </div>
+                  )}
+                  {selectedProduct.resellerPrice && (
+                    <div className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">
+                      <span>Reseller Rate: </span>
+                      <strong className="text-emerald-700 font-extrabold">৳{selectedProduct.resellerPrice}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Price & Free Delivery */}
               <div className="flex items-center justify-between pt-1">
@@ -926,7 +995,8 @@ Please let me know if this is available and any details about pricing/delivery!`
                             setActiveColor(col.name);
                             const targetImg = col.image || (col.gallery && col.gallery[0]);
                             if (targetImg) {
-                              const imgIdx = modalImages.findIndex(img => img === targetImg);
+                              const resolved = resolveStoreAssetUrl(targetImg);
+                              const imgIdx = modalImages.findIndex(img => img === resolved);
                               if (imgIdx !== -1) {
                                 setActiveMediaIndex(imgIdx);
                                 setShowVideoModal(false);
@@ -945,7 +1015,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                           <div className="relative shrink-0">
                             {col.image ? (
                               <img 
-                                src={col.image} 
+                                src={resolveStoreAssetUrl(col.image)} 
                                 alt={col.name} 
                                 className={`w-11 h-11 object-cover rounded-xl border border-slate-200 bg-white shadow-2xs ${isColOutOfStock ? 'grayscale opacity-60' : ''}`} 
                               />
@@ -970,8 +1040,8 @@ Please let me know if this is available and any details about pricing/delivery!`
                             <p className={`font-extrabold text-xs truncate ${isColOutOfStock ? 'line-through text-slate-400' : ''}`}>
                               {col.name}
                             </p>
-                            <p className={`text-[9px] font-bold ${colorStock <= 0 ? 'text-rose-600' : (colorStock <= (selectedProduct.lowStockThreshold || 5) ? 'text-amber-600' : 'text-emerald-600')}`}>
-                              {colorStock <= 0 ? 'Out of Stock' : (colorStock <= (selectedProduct.lowStockThreshold || 5) ? 'Low Stock' : 'In Stock')}
+                            <p className={`text-[9px] font-bold ${colorStock <= 0 ? 'text-rose-600' : (colorStock <= Math.min(4, selectedProduct.lowStockThreshold || 4) ? 'text-amber-600' : 'text-emerald-600')}`}>
+                              {colorStock <= 0 ? 'Out of Stock' : (colorStock <= Math.min(4, selectedProduct.lowStockThreshold || 4) ? `Low Stock (${colorStock} left)` : `In Stock (${colorStock})`)}
                             </p>
                           </div>
 
@@ -1029,7 +1099,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                           const comboKey = `${colKey}__${szKey}`;
                           const currentQty = variantQuantities[comboKey] || 0;
                           const isOutOfStock = rowItem.stock <= 0;
-                          const isLowStock = rowItem.stock > 0 && rowItem.stock <= (selectedProduct.lowStockThreshold || 5);
+                          const isLowStock = rowItem.stock > 0 && rowItem.stock <= Math.min(4, selectedProduct.lowStockThreshold || 4);
                           const isLimitReached = currentQty >= rowItem.stock && rowItem.stock > 0;
 
                           return (
@@ -1056,11 +1126,11 @@ Please let me know if this is available and any details about pricing/delivery!`
                                   </span>
                                 ) : isLowStock ? (
                                   <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800">
-                                    Low Stock
+                                    Low Stock ({rowItem.stock} left)
                                   </span>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded text-[10px] font-bold text-emerald-700 bg-emerald-50">
-                                    In Stock
+                                    In Stock ({rowItem.stock})
                                   </span>
                                 )}
                               </td>
@@ -1170,7 +1240,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                   className="w-full py-3.5 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all uppercase tracking-wider bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 text-white hover:scale-[1.02] active:scale-[0.98] cursor-pointer ring-2 ring-amber-400/30 animate-pulse"
                 >
                   <Zap className="w-4 h-4 text-amber-200 fill-amber-200" />
-                  <span>BUY NOW {totalBillAmount > 0 ? `(৳${totalBillAmount})` : ''}</span>
+                  <span>{isPreOrder ? 'PRE-ORDER NOW' : 'BUY NOW'} {totalBillAmount > 0 ? `(৳${totalBillAmount})` : ''}</span>
                 </button>
 
                 <button
@@ -1185,7 +1255,7 @@ Please let me know if this is available and any details about pricing/delivery!`
                   className="w-full py-3.5 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(2,6,23,0.3)] transition-all cursor-pointer bg-slate-900 hover:bg-slate-800 text-white hover:scale-[1.01] active:scale-[0.98] animate-pulse"
                 >
                   <ShoppingBag className="w-4 h-4 text-sky-400" />
-                  <span>ADD TO CART {totalSelectedUnits > 0 ? `(${totalSelectedUnits})` : ''}</span>
+                  <span>{isPreOrder ? 'ADD TO PRE-ORDER' : 'ADD TO CART'} {totalSelectedUnits > 0 ? `(${totalSelectedUnits})` : ''}</span>
                 </button>
               </div>
 
@@ -1202,7 +1272,7 @@ Please let me know if this is available and any details about pricing/delivery!`
         </div>
 
         {/* Bottom Section: Full Description & Reviews */}
-        <div className="bg-slate-50 p-6 sm:p-8 border-t border-slate-200 space-y-6 rounded-3xl">
+        <div className="bg-[#F4F7FA] p-6 sm:p-8 border-t border-slate-200 space-y-6">
           <div className="max-w-4xl mx-auto space-y-4">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider font-['Outfit'] border-b border-slate-200 pb-2">
               Full Product Description & Highlights
@@ -1391,6 +1461,28 @@ Please let me know if this is available and any details about pricing/delivery!`
           )}
         </div>
       </div>
+
+      {/* Related Products Section (Matching category/type items first) */}
+      {relatedProducts.length > 0 && (
+        <div className="bg-[#ECF1F6] p-5 sm:p-8 border-t border-slate-200 shrink-0">
+          <div className="max-w-7xl mx-auto space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Outfit'] tracking-tight">
+                Related Products
+              </h3>
+              <span className="text-[11px] font-bold text-slate-500">
+                {relatedProducts.length} Items
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+              {relatedProducts.map((relProd) => (
+                <ProductCard key={`rel-prod-${relProd.id}`} product={relProd} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Interactive Lightbox Viewer for Product Review Photos */}
       <ReviewImageLightbox

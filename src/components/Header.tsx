@@ -41,7 +41,8 @@ export const Header: React.FC<HeaderProps> = () => {
     staticPages,
     setSelectedStaticPage,
     logSearchQuery,
-    setIsSearchPageOpen
+    setIsSearchPageOpen,
+    setActiveSeeMoreSection
   } = useStore();
 
   const { showToast } = useToast();
@@ -108,9 +109,9 @@ export const Header: React.FC<HeaderProps> = () => {
   const activeStaticPages = (staticPages || []).filter(p => p && p.active).sort((a, b) => (a.order || 0) - (b.order || 0));
 
   return (
-    <header className="sticky top-0 z-40 bg-[#1E293B] text-white shadow-xl border-b border-[#334155]">
+    <header className="sticky top-0 z-40 bg-[#1E293B] text-white shadow-lg border-b border-slate-700/60">
       {/* Main Navigation Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3 sm:gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-0.5 sm:py-1 flex items-center justify-between gap-3 sm:gap-4">
         
         {/* Left Side: Brand Logo & Title */}
         <div className="flex items-center shrink-0">
@@ -118,31 +119,32 @@ export const Header: React.FC<HeaderProps> = () => {
             href="#" 
             onClick={(e) => {
               e.preventDefault();
+              setActiveSeeMoreSection(null);
               setActiveCategory('All');
               setSearchQuery('');
               setIsSearchExpanded(false);
             }} 
-            className="flex items-center gap-2.5 group"
+            className="flex items-center gap-2.5 sm:gap-3.5 group"
           >
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-[#38BDF8] via-[#6366F1] to-[#F59E0B] p-0.5 shadow-xl shadow-sky-500/25 group-hover:scale-105 transition-transform duration-300 shrink-0">
+            <div className="w-[54px] h-[54px] sm:w-[64px] sm:h-[64px] rounded-full bg-white/25 p-[1px] shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform duration-300 shrink-0">
               <div 
-                className="w-full h-full rounded-full flex items-center justify-center font-black text-2xl overflow-hidden p-0.5 shadow-inner"
+                className="w-full h-full rounded-full flex items-center justify-center font-black text-2xl overflow-hidden"
                 style={{ backgroundColor: storeConfig.logoBgColor || '#FFFFFF' }}
               >
                 {(!storeConfig.logoUrl || storeConfig.logoUrl === '/logo.svg' || storeConfig.logoUrl === '/logo.png') ? (
-                  <StoreLogo className="w-full h-full object-contain scale-110" bgColor={storeConfig.logoBgColor || '#FFFFFF'} />
+                  <StoreLogo className="w-full h-full object-contain scale-[1.14] contrast-[1.06]" bgColor={storeConfig.logoBgColor || '#FFFFFF'} />
                 ) : (
                   <img 
                     src={storeConfig.logoUrl} 
                     alt={storeConfig.storeName} 
-                    className="w-full h-full object-contain rounded-full scale-110" 
+                    className="w-full h-full object-contain rounded-full scale-[1.14] contrast-[1.06]" 
                     style={{ backgroundColor: storeConfig.logoBgColor || '#FFFFFF' }}
                   />
                 )}
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="font-black text-lg sm:text-2xl tracking-tight text-white block leading-none font-['Outfit'] group-hover:text-[#38BDF8] transition-colors">
+              <span className="font-black text-xl sm:text-[28px] lg:text-[31px] tracking-[-0.02em] text-white block leading-none font-['Outfit'] group-hover:text-[#38BDF8] transition-colors drop-shadow-xs">
                 {storeConfig.storeName}
               </span>
             </div>
@@ -165,6 +167,7 @@ export const Header: React.FC<HeaderProps> = () => {
           {/* Wishlist Button */}
           <button 
             onClick={() => {
+              setActiveSeeMoreSection(null);
               setActiveCategory('All');
               const el = document.getElementById('products');
               el?.scrollIntoView({ behavior: 'smooth' });

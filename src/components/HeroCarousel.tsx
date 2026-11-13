@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Play, Pause, Sparkles, ArrowRight, Tag, ShieldCheck, Truck, Zap } from 'lucide-react';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Sparkles, 
+  ArrowRight
+} from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 
 export const HeroCarousel: React.FC = () => {
@@ -66,49 +71,13 @@ export const HeroCarousel: React.FC = () => {
     }
   };
 
-  // Dynamic Store Guarantee Cards from Admin Settings
-  const activeGuarantees = (storeConfig.guarantees || []).filter(g => g.active !== false);
-
-  const getGuaranteeIcon = (iconName?: string, index: number = 0) => {
-    const key = (iconName || '').toLowerCase();
-    if (key.includes('truck') || key.includes('delivery') || key.includes('express')) {
-      return <Truck className="w-4 h-4" />;
-    }
-    if (key.includes('shield') || key.includes('authentic') || key.includes('quality')) {
-      return <ShieldCheck className="w-4 h-4" />;
-    }
-    if (key.includes('cash') || key.includes('zap') || key.includes('payment')) {
-      return <Zap className="w-4 h-4" />;
-    }
-    if (key.includes('tag') || key.includes('swap') || key.includes('exchange') || key.includes('refresh')) {
-      return <Tag className="w-4 h-4" />;
-    }
-    const fallbacks = [
-      <Truck key="0" className="w-4 h-4" />,
-      <ShieldCheck key="1" className="w-4 h-4" />,
-      <Zap key="2" className="w-4 h-4" />,
-      <Tag key="3" className="w-4 h-4" />
-    ];
-    return fallbacks[index % fallbacks.length];
-  };
-
-  const getGuaranteeColor = (index: number) => {
-    const colors = [
-      { bg: "bg-sky-500/10", text: "text-[#38BDF8]", border: "border-sky-500/20" },
-      { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/20" },
-      { bg: "bg-amber-500/10", text: "text-[#F59E0B]", border: "border-amber-500/20" },
-      { bg: "bg-indigo-500/10", text: "text-indigo-400", border: "border-indigo-500/20" }
-    ];
-    return colors[index % colors.length];
-  };
-
   return (
     <div className="relative w-full bg-[#0B1120] overflow-hidden group">
-      {/* 1. Main Hero Carousel Stage */}
+      {/* 1. Main Hero Carousel Stage with subtle laptop/desktop size boost */}
       <div 
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="relative w-full aspect-[16/9] sm:aspect-[21/9] max-h-[540px] overflow-hidden select-none cursor-grab active:cursor-grabbing"
+        className="relative w-full min-h-[260px] sm:min-h-[400px] lg:min-h-[505px] xl:min-h-[545px] max-h-[660px] aspect-[16/10] sm:aspect-[21/9.2] overflow-hidden select-none cursor-grab active:cursor-grabbing"
       >
         {activeSlides.map((slide, index) => {
           const isCurrent = index === currentIndex;
@@ -152,7 +121,7 @@ export const HeroCarousel: React.FC = () => {
                 />
               )}
 
-              {/* Ultra-Light Soft Gradient for Text Readability Only (No Dark Vignette) */}
+              {/* Ultra-Light Soft Gradient for Text Readability Only */}
               <div 
                 className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent pointer-events-none"
                 style={{ opacity: slide.overlayOpacity ?? 0.2 }}
@@ -163,7 +132,7 @@ export const HeroCarousel: React.FC = () => {
 
         {/* 2. Slide Content Typography & CTA */}
         {!currentSlide.hideTextOverlay && (
-          <div className="relative z-20 max-w-7xl mx-auto h-full px-4 sm:px-6 lg:px-8 flex flex-col justify-end pb-5 sm:pb-12 md:pb-16">
+          <div className="relative z-20 max-w-[1360px] mx-auto h-full px-4 sm:px-6 lg:px-8 flex flex-col justify-end pb-5 sm:pb-12 md:pb-16">
             <div className="max-w-2xl space-y-1.5 sm:space-y-3.5 animate-fade-in">
               
               {/* High-Impact Badge */}
@@ -240,32 +209,6 @@ export const HeroCarousel: React.FC = () => {
           <ChevronRight className="w-4 h-4 sm:w-6 sm:h-6" />
         </button>
       </div>
-
-      {/* 5. GHORER BAZAR / DARAZ STYLE BENEFIT STRIP (Controlled dynamically via Admin Settings) */}
-      {activeGuarantees.length > 0 && (
-        <div className="bg-[#0F172A] border-t border-b border-slate-800 py-3.5 px-4 sm:px-6 lg:px-8">
-          <div className={`max-w-7xl mx-auto grid grid-cols-2 ${
-            activeGuarantees.length === 1 ? 'md:grid-cols-1' :
-            activeGuarantees.length === 2 ? 'md:grid-cols-2' :
-            activeGuarantees.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-4'
-          } gap-3 text-xs`}>
-            {activeGuarantees.map((item, idx) => {
-              const color = getGuaranteeColor(idx);
-              return (
-                <div key={item.id || idx} className="flex items-center gap-2.5 text-slate-300">
-                  <div className={`w-8 h-8 rounded-xl ${color.bg} ${color.text} flex items-center justify-center shrink-0 border ${color.border}`}>
-                    {getGuaranteeIcon(item.icon, idx)}
-                  </div>
-                  <div>
-                    <p className="font-bold text-white text-[11px] leading-tight">{item.title}</p>
-                    <p className="text-[10px] text-slate-400">{item.description}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

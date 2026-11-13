@@ -109,7 +109,7 @@ export const InventoryManager: React.FC = () => {
 
         <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-1">
           <div className="flex items-center justify-between text-amber-400 text-xs font-bold">
-            <span>Low Stock Alert (&lt;= 5 pcs)</span>
+            <span>Low Stock Alert (&lt; 5 pcs)</span>
             <AlertTriangle className="w-4 h-4 text-amber-400" />
           </div>
           <p className="text-2xl font-black text-amber-400 font-['Outfit']">{lowStockProducts.length} items</p>
@@ -270,7 +270,7 @@ export const InventoryManager: React.FC = () => {
                               {prod.variations?.map(v => {
                                 const comboText = Object.entries(v.combination).map(([k, val]) => `${k}: ${val}`).join(' / ');
                                 const vIsOut = (v.stock || 0) === 0 || v.inStock === false;
-                                const vIsLow = (v.stock || 0) > 0 && (v.stock || 0) <= 5;
+                                const vIsLow = (v.stock || 0) > 0 && (v.stock || 0) < 5;
                                 const varImg = v.image || prod.images[0];
 
                                 return (

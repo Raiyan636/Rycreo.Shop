@@ -22,7 +22,10 @@ import {
   INITIAL_REVIEWS, 
   INITIAL_QUICK_CATEGORIES, 
   INITIAL_STATIC_PAGES, 
-  INITIAL_ATTRIBUTES 
+  INITIAL_ATTRIBUTES,
+  INITIAL_PREORDER_PRODUCTS,
+  INITIAL_BUYMORE_OFFERS,
+  INITIAL_BUYMORE_VOUCHERS
 } from "./data/initialData";
 
 export enum OperationType {
@@ -813,6 +816,9 @@ export const seedAllInitialDataToFirestore = async (force: boolean = false): Pro
       quickCategories: INITIAL_QUICK_CATEGORIES,
       staticPages: INITIAL_STATIC_PAGES,
       attributes: INITIAL_ATTRIBUTES,
+      preOrderProducts: INITIAL_PREORDER_PRODUCTS,
+      buyMoreOffers: INITIAL_BUYMORE_OFFERS,
+      buyMoreVouchers: INITIAL_BUYMORE_VOUCHERS,
       orders: [],
       productsCount: INITIAL_PRODUCTS.length,
       updatedAt: new Date().toISOString()
@@ -1008,3 +1014,66 @@ export const subscribeToAttributes = (onUpdate: (data: any[]) => void) => {
     return () => {};
   }
 };
+
+/**
+ * Subscribe to real-time incoming pre-orders for authorized admins
+ */
+export const subscribeToPreOrders = (onUpdate: (preOrders: any[]) => void) => {
+  try {
+    const collRef = collection(db, "pre_orders");
+    return onSnapshot(collRef, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((snapDoc) => {
+        list.push({ id: snapDoc.id, ...snapDoc.data() });
+      });
+      list.sort((a, b) =>
+        (b.orderTimestamp || new Date(b.createdAt || 0).getTime()) -
+        (a.orderTimestamp || new Date(a.createdAt || 0).getTime())
+      );
+      onUpdate(list);
+    }, (error) => {
+      console.warn("Pre-orders onSnapshot listener notice:", error?.message);
+    });
+  } catch (err) {
+    console.warn("Failed to subscribe to pre-orders:", err);
+    return () => {};
+  }
+};
+
+export const addPreOrderToFirestore = async (preOrder: any) => {
+  try {
+    if (!preOrder || !preOrder.id) return;
+    const sanitized = sanitizeForFirestore(preOrder);
+    const ref = doc(db, "pre_orders", preOrder.id);
+    await setDoc(ref, sanitized);
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    if (msg.includes("Missing or insufficient permissions") || msg.includes("permission-denied")) {
+      console.warn("Firestore pre-order creation skipped due to permissions:", msg);
+      return;
+    }
+    handleFirestoreError(err, OperationType.CREATE, `pre_orders/${preOrder?.id}`);
+  }
+};
+
+export const updatePreOrderInFirestore = async (preOrderId: string, updates: any) => {
+  try {
+    await ensureAdminAuthSession();
+    const sanitized = sanitizeForFirestore(updates);
+    const ref = doc(db, "pre_orders", preOrderId);
+    await updateDoc(ref, sanitized);
+  } catch (err: any) {
+    console.warn("Pre-order update notice:", err?.message || err);
+  }
+};
+
+export const deletePreOrderFromFirestore = async (preOrderId: string) => {
+  try {
+    await ensureAdminAuthSession();
+    const ref = doc(db, "pre_orders", preOrderId);
+    await deleteDoc(ref);
+  } catch (err: any) {
+    console.warn("Pre-order delete notice:", err?.message || err);
+  }
+};
+
